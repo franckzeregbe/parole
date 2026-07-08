@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Parole",
+    "slug": "parole",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FCFBF7"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.parole.bible"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FCFBF7"
+      },
+      "package": "com.parole.bible"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
