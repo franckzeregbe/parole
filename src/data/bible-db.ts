@@ -1,88 +1,26 @@
 import * as SQLite from 'expo-sqlite';
-import { BIBLE, ALL_BOOKS, ORDER } from './bible';
+import { getAllBooks, getAllSeedData } from './bible-data';
 import type { VersionId } from './bible';
 
 export type { VersionId };
 export { VERSIONS, VLABEL, VLANG } from './bible';
 
-const BOOK_ORDER: string[] = [
-  'gen', 'ex', 'lev', 'num', 'de', 'jos', 'jug', 'rut', '1sa', '2sam',
-  '1ro', '2ro', '1ch', '2ch', 'ezd', 'neh', 'est', 'job', 'ps', 'pro',
-  'ecc', 'cant', 'esa', 'jer', 'la', 'eze', 'dan', 'os', 'joe', 'am',
-  'abd', 'jon', 'mi', 'na', 'hab', 'soph', 'agg', 'zac', 'mal',
-  'mat', 'mar', 'luc', 'jean', 'act', 'rom', '1co', '2co', 'gal', 'eph',
-  'ph', 'col', '1ts', '2ts', '1ti', '2ti', 'tit', 'phm', 'heb', 'jac',
-  '1pi', '2pi', '1jo', '2jo', '3jo', 'jud', 'apo',
-];
-
-const BOOKS_SEED: { id: string; name: string; testament: string }[] = [
-  { id: 'gen', name: 'Genèse', testament: 'Ancien' },
-  { id: 'ex', name: 'Exode', testament: 'Ancien' },
-  { id: 'lev', name: 'Lévitique', testament: 'Ancien' },
-  { id: 'num', name: 'Nombres', testament: 'Ancien' },
-  { id: 'de', name: 'Deutéronome', testament: 'Ancien' },
-  { id: 'jos', name: 'Josué', testament: 'Ancien' },
-  { id: 'jug', name: 'Juges', testament: 'Ancien' },
-  { id: 'rut', name: 'Ruth', testament: 'Ancien' },
-  { id: '1sa', name: '1 Samuel', testament: 'Ancien' },
-  { id: '2sam', name: '2 Samuel', testament: 'Ancien' },
-  { id: '1ro', name: '1 Rois', testament: 'Ancien' },
-  { id: '2ro', name: '2 Rois', testament: 'Ancien' },
-  { id: '1ch', name: '1 Chroniques', testament: 'Ancien' },
-  { id: '2ch', name: '2 Chroniques', testament: 'Ancien' },
-  { id: 'ezd', name: 'Esdras', testament: 'Ancien' },
-  { id: 'neh', name: 'Néhémie', testament: 'Ancien' },
-  { id: 'est', name: 'Esther', testament: 'Ancien' },
-  { id: 'job', name: 'Job', testament: 'Ancien' },
-  { id: 'ps', name: 'Psaumes', testament: 'Ancien' },
-  { id: 'pro', name: 'Proverbes', testament: 'Ancien' },
-  { id: 'ecc', name: 'Ecclésiaste', testament: 'Ancien' },
-  { id: 'cant', name: 'Cantique des Cantiques', testament: 'Ancien' },
-  { id: 'esa', name: 'Ésaïe', testament: 'Ancien' },
-  { id: 'jer', name: 'Jérémie', testament: 'Ancien' },
-  { id: 'la', name: 'Lamentations', testament: 'Ancien' },
-  { id: 'eze', name: 'Ézéchiel', testament: 'Ancien' },
-  { id: 'dan', name: 'Daniel', testament: 'Ancien' },
-  { id: 'os', name: 'Osée', testament: 'Ancien' },
-  { id: 'joe', name: 'Joël', testament: 'Ancien' },
-  { id: 'am', name: 'Amos', testament: 'Ancien' },
-  { id: 'abd', name: 'Abdias', testament: 'Ancien' },
-  { id: 'jon', name: 'Jonas', testament: 'Ancien' },
-  { id: 'mi', name: 'Michée', testament: 'Ancien' },
-  { id: 'na', name: 'Nahum', testament: 'Ancien' },
-  { id: 'hab', name: 'Habacuc', testament: 'Ancien' },
-  { id: 'soph', name: 'Sophonie', testament: 'Ancien' },
-  { id: 'agg', name: 'Aggée', testament: 'Ancien' },
-  { id: 'zac', name: 'Zacharie', testament: 'Ancien' },
-  { id: 'mal', name: 'Malachie', testament: 'Ancien' },
-  { id: 'mat', name: 'Matthieu', testament: 'Nouveau' },
-  { id: 'mar', name: 'Marc', testament: 'Nouveau' },
-  { id: 'luc', name: 'Luc', testament: 'Nouveau' },
-  { id: 'jean', name: 'Jean', testament: 'Nouveau' },
-  { id: 'act', name: 'Actes', testament: 'Nouveau' },
-  { id: 'rom', name: 'Romains', testament: 'Nouveau' },
-  { id: '1co', name: '1 Corinthiens', testament: 'Nouveau' },
-  { id: '2co', name: '2 Corinthiens', testament: 'Nouveau' },
-  { id: 'gal', name: 'Galates', testament: 'Nouveau' },
-  { id: 'eph', name: 'Éphésiens', testament: 'Nouveau' },
-  { id: 'ph', name: 'Philippiens', testament: 'Nouveau' },
-  { id: 'col', name: 'Colossiens', testament: 'Nouveau' },
-  { id: '1ts', name: '1 Thessaloniciens', testament: 'Nouveau' },
-  { id: '2ts', name: '2 Thessaloniciens', testament: 'Nouveau' },
-  { id: '1ti', name: '1 Timothée', testament: 'Nouveau' },
-  { id: '2ti', name: '2 Timothée', testament: 'Nouveau' },
-  { id: 'tit', name: 'Tite', testament: 'Nouveau' },
-  { id: 'phm', name: 'Philémon', testament: 'Nouveau' },
-  { id: 'heb', name: 'Hébreux', testament: 'Nouveau' },
-  { id: 'jac', name: 'Jacques', testament: 'Nouveau' },
-  { id: '1pi', name: '1 Pierre', testament: 'Nouveau' },
-  { id: '2pi', name: '2 Pierre', testament: 'Nouveau' },
-  { id: '1jo', name: '1 Jean', testament: 'Nouveau' },
-  { id: '2jo', name: '2 Jean', testament: 'Nouveau' },
-  { id: '3jo', name: '3 Jean', testament: 'Nouveau' },
-  { id: 'jud', name: 'Jude', testament: 'Nouveau' },
-  { id: 'apo', name: 'Apocalypse', testament: 'Nouveau' },
-];
+const BOOK_NAMES_EN: Record<string, string> = {
+  gen: 'genesis', ex: 'exodus', lev: 'leviticus', num: 'numbers', deu: 'deuteronomy',
+  jos: 'joshua', jug: 'judges', rut: 'ruth', '1sa': '1-samuel', '2sa': '2-samuel',
+  '1ro': '1-kings', '2ro': '2-kings', '1ch': '1-chronicles', '2ch': '2-chronicles',
+  ezd: 'ezra', neh: 'nehemiah', est: 'esther', job: 'job', ps: 'psalms',
+  pro: 'proverbs', ecc: 'ecclesiastes', cant: 'song-of-solomon', esa: 'isaiah',
+  jer: 'jeremiah', la: 'lamentations', eze: 'ezekiel', dan: 'daniel', hos: 'hosea',
+  joe: 'joel', am: 'amos', abd: 'obadiah', jon: 'jonah', mi: 'micah', nah: 'nahum',
+  hab: 'habakkuk', soph: 'zephaniah', agg: 'haggai', zac: 'zechariah', mal: 'malachi',
+  mat: 'matthew', mar: 'mark', luc: 'luke', jean: 'john', act: 'acts', rom: 'romans',
+  '1co': '1-corinthians', '2co': '2-corinthians', gal: 'galatians', eph: 'ephesians',
+  phi: 'philippians', col: 'colossians', '1ts': '1-thessalonians', '2ts': '2-thessalonians',
+  '1ti': '1-timothy', '2ti': '2-timothy', tit: 'titus', phm: 'philemon', heb: 'hebrews',
+  jac: 'james', '1pi': '1-peter', '2pi': '2-peter', '1jo': '1-john', '2jo': '2-john',
+  '3jo': '3-john', jud: 'jude', apo: 'revelation',
+};
 
 export async function initBibleDb(db: any): Promise<void> {
   await db.execAsync(`
@@ -112,38 +50,26 @@ export async function initBibleDb(db: any): Promise<void> {
     );
   `);
 
-  for (let i = 0; i < BOOK_ORDER.length; i++) {
-    const id = BOOK_ORDER[i];
-    const book = BOOKS_SEED.find((b) => b.id === id);
-    if (!book) continue;
+  const books = getAllBooks();
+  for (let i = 0; i < books.length; i++) {
+    const b = books[i];
     await db.runAsync(
       'INSERT OR IGNORE INTO books (id, name, testament, order_num, all_chapters) VALUES (?, ?, ?, ?, 0)',
-      [book.id, book.name, book.testament, i + 1]
+      [b.id, b.name, b.testament === 'Ancien Testament' ? 'Ancien' : 'Nouveau', i + 1]
     );
   }
 
-  for (const bookId of ORDER) {
-    const chapter = BIBLE[bookId];
-    if (!chapter) continue;
-
+  const seeds = getAllSeedData();
+  for (const seed of seeds) {
     await db.runAsync(
       'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
-      [bookId, chapter.chapter, chapter.sub]
+      [seed.bookId, seed.chapter, seed.sub]
     );
 
-    const verseStart = chapter.verseStart;
-    const texts = chapter.text;
-    for (let i = 0; i < texts.dar.length; i++) {
+    for (const v of seed.verses) {
       await db.runAsync(
         'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
-        [
-          bookId,
-          chapter.chapter,
-          verseStart + i,
-          texts.dar[i] ?? null,
-          texts.lsg[i] ?? null,
-          texts.kjv[i] ?? null,
-        ]
+        [seed.bookId, seed.chapter, v.verse, v.dar, v.lsg, v.kjv]
       );
     }
   }
@@ -153,6 +79,86 @@ export async function loadBibleDb(): Promise<any> {
   const db = await SQLite.openDatabaseAsync('bible.db');
   await initBibleDb(db);
   return db;
+}
+
+export async function downloadChapterFromApi(
+  db: any,
+  bookId: string,
+  chapterNum: number
+): Promise<{ success: boolean; versesStored: number; error?: string }> {
+  const nameEn = BOOK_NAMES_EN[bookId];
+  if (!nameEn) return { success: false, versesStored: 0, error: `Unknown book ID: ${bookId}` };
+
+  try {
+    const baseUrl = `https://bible-api.com/${nameEn}+${chapterNum}?verse_numbers=true`;
+
+    const [kjvResponse, lsgResponse, darResponse] = await Promise.all([
+      fetch(baseUrl),
+      fetch(`${baseUrl}&translation=segond`),
+      fetch(`${baseUrl}&translation=darby`),
+    ]);
+
+    if (!kjvResponse.ok) {
+      return { success: false, versesStored: 0, error: `KJV API returned ${kjvResponse.status}` };
+    }
+
+    const kjvData = await kjvResponse.json();
+    const lsgData = lsgResponse.ok ? await lsgResponse.json() : null;
+    const darData = darResponse.ok ? await darResponse.json() : null;
+
+    const verseMap: Map<number, { kjv: string; lsg: string | null; dar: string | null }> = new Map();
+
+    for (const v of kjvData.verses || []) {
+      verseMap.set(v.verse, { kjv: v.text, lsg: null, dar: null });
+    }
+
+    if (lsgData?.verses) {
+      for (const v of lsgData.verses) {
+        const existing = verseMap.get(v.verse);
+        if (existing) existing.lsg = v.text;
+      }
+    }
+
+    if (darData?.verses) {
+      for (const v of darData.verses) {
+        const existing = verseMap.get(v.verse);
+        if (existing) existing.dar = v.text;
+      }
+    }
+
+    const verses = Array.from(verseMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([verseNum, texts]) => ({
+        verse: verseNum,
+        kjv: texts.kjv,
+        lsg: texts.lsg ?? '',
+        dar: texts.dar ?? '',
+      }));
+
+    await db.execAsync('BEGIN TRANSACTION');
+    try {
+      await db.runAsync(
+        'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
+        [bookId, chapterNum, null]
+      );
+
+      for (const v of verses) {
+        await db.runAsync(
+          'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
+          [bookId, chapterNum, v.verse, v.dar, v.lsg, v.kjv]
+        );
+      }
+
+      await db.execAsync('COMMIT');
+    } catch (e: any) {
+      await db.execAsync('ROLLBACK');
+      return { success: false, versesStored: 0, error: e.message };
+    }
+
+    return { success: true, versesStored: verses.length };
+  } catch (err: any) {
+    return { success: false, versesStored: 0, error: err.message };
+  }
 }
 
 export async function getBookList(db: any): Promise<any[]> {

@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#FCFBF7"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.parole.bible"
@@ -25,6 +27,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "3a37e441-a176-4b40-a6ad-ea584d32a83c"
+      }
+    },
+    "owner": "franckzeregbe"
   }
 }
