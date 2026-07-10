@@ -37,7 +37,7 @@ import SettingsScreen from './src/components/SettingsScreen';
 type Tab = 'home' | 'read' | 'search' | 'fav' | 'settings';
 const SPEEDS = [0.75, 1, 1.25, 1.5];
 const vkey = (b: string, i: number) => `${b}:${i}`;
-const DEFAULT_CHAPTERS: Record<string, number> = { gen: 1, ps: 23, jean: 3 };
+
 
 function formatDate(): string {
   const d = new Date();
@@ -84,8 +84,7 @@ export default function App() {
   const [downloading, setDownloading] = useState<Record<string, boolean>>({});
   const [available, setAvailable] = useState<Record<string, boolean>>({});
   const [dbReady, setDbReady] = useState<any>(null);
-  const [votd, setVotd] = useState('Car Dieu a tant aimé le monde, qu\'il a donné son Fils unique, afin que quiconque croit en lui ne périsse pas, mais qu\'il ait la vie éternelle.');
-
+  const votd = '';
   const tabAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     tabAnim.setValue(0);
@@ -108,34 +107,6 @@ export default function App() {
           avail[row.book_id] = true;
         }
         setAvailable(avail);
-
-        const list = await getBookList(db);
-        const loadChapterIntoCache = async (bid: string) => {
-          const chapterNum = DEFAULT_CHAPTERS[bid] || 1;
-          const c = await getChapter(db, bid, chapterNum);
-          if (c) {
-            const info = list.find((b: any) => b.id === bid);
-            chapterCache.current[bid] = dbChapterToChapterData(info?.name || bid, c);
-          }
-        };
-
-        await Promise.all(['gen', 'ps', 'jean'].map(loadChapterIntoCache));
-
-        if (chapterCache.current['jean']) {
-          setVotd(chapterCache.current['jean'].text[version][0]);
-        }
-
-        const initial = chapterCache.current['jean'] || await (async () => {
-          const c = await getChapter(db, 'jean', 3);
-          if (c) {
-            const info = list.find((b: any) => b.id === 'jean');
-            const chap = dbChapterToChapterData(info?.name || 'jean', c);
-            chapterCache.current['jean'] = chap;
-            return chap;
-          }
-          return null;
-        })();
-        if (initial) setChapterData(initial);
       } catch (e) { console.warn('DB init failed', e); }
     })();
   }, []);
@@ -145,8 +116,7 @@ export default function App() {
     if (!dbRef.current) return;
     (async () => {
       try {
-        const chapterNum = DEFAULT_CHAPTERS[book] || 1;
-        const dbChap = await getChapter(dbRef.current, book, chapterNum);
+        const dbChap = await getChapter(dbRef.current, book, 1);
         if (dbChap) {
           const list = await getBookList(dbRef.current);
           const info = list.find((b: any) => b.id === book);
@@ -157,13 +127,6 @@ export default function App() {
       } catch (e) { console.warn('Failed to load chapter', e); }
     })();
   }, [book]);
-
-  useEffect(() => {
-    const c = chapterCache.current['jean'];
-    if (c?.text?.[version]?.[0]) {
-      setVotd(c.text[version][0]);
-    }
-  }, [version, chapterData]);
 
   const downloadChapter = async (bookId: string, chapterNum: number) => {
     const key = `${bookId}:${chapterNum}`;
@@ -255,7 +218,7 @@ export default function App() {
         if (!chapterCache.current[next]) {
           try {
             if (dbRef.current) {
-              const c = await getChapter(dbRef.current, next, DEFAULT_CHAPTERS[next] || 1);
+              const c = await getChapter(dbRef.current, next, 1);
               if (c) {
                 const list = await getBookList(dbRef.current);
                 const info = list.find((b: any) => b.id === next);
@@ -358,7 +321,6 @@ export default function App() {
         <Animated.View style={[styles.screens, { opacity: tabAnim }]}>
           {tab === 'home' && (
             <HomeScreen version={version} votd={votd} onOpenBook={(id: string) => { setBook(id); setTab('read'); }}
-              onPlayVotd={() => { setBook('jean'); setVersion('dar'); startPlayback(0, 'jean'); setShowNow(true); }}
               downloading={downloading} onDownloadChapter={downloadChapter} available={available} />
           )}
           {tab === 'read' && (

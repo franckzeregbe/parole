@@ -1,26 +1,11 @@
 import * as SQLite from 'expo-sqlite';
-import { getAllBooks, getAllSeedData } from './bible-data';
+import * as FileSystem from 'expo-file-system';
+import { Asset } from 'expo-asset';
+import { getAllBooks } from './bible-data';
 import type { VersionId } from './bible';
 
 export type { VersionId };
 export { VERSIONS, VLABEL, VLANG } from './bible';
-
-const BOOK_NAMES_EN: Record<string, string> = {
-  gen: 'genesis', ex: 'exodus', lev: 'leviticus', num: 'numbers', deu: 'deuteronomy',
-  jos: 'joshua', jug: 'judges', rut: 'ruth', '1sa': '1-samuel', '2sa': '2-samuel',
-  '1ro': '1-kings', '2ro': '2-kings', '1ch': '1-chronicles', '2ch': '2-chronicles',
-  ezd: 'ezra', neh: 'nehemiah', est: 'esther', job: 'job', ps: 'psalms',
-  pro: 'proverbs', ecc: 'ecclesiastes', cant: 'song-of-solomon', esa: 'isaiah',
-  jer: 'jeremiah', la: 'lamentations', eze: 'ezekiel', dan: 'daniel', hos: 'hosea',
-  joe: 'joel', am: 'amos', abd: 'obadiah', jon: 'jonah', mi: 'micah', nah: 'nahum',
-  hab: 'habakkuk', soph: 'zephaniah', agg: 'haggai', zac: 'zechariah', mal: 'malachi',
-  mat: 'matthew', mar: 'mark', luc: 'luke', jean: 'john', act: 'acts', rom: 'romans',
-  '1co': '1-corinthians', '2co': '2-corinthians', gal: 'galatians', eph: 'ephesians',
-  phi: 'philippians', col: 'colossians', '1ts': '1-thessalonians', '2ts': '2-thessalonians',
-  '1ti': '1-timothy', '2ti': '2-timothy', tit: 'titus', phm: 'philemon', heb: 'hebrews',
-  jac: 'james', '1pi': '1-peter', '2pi': '2-peter', '1jo': '1-john', '2jo': '2-john',
-  '3jo': '3-john', jud: 'jude', apo: 'revelation',
-};
 
 export async function initBibleDb(db: any): Promise<void> {
   await db.execAsync(`
@@ -59,25 +44,25 @@ export async function initBibleDb(db: any): Promise<void> {
     );
   }
 
-  const seeds = getAllSeedData();
-  for (const seed of seeds) {
-    await db.runAsync(
-      'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
-      [seed.bookId, seed.chapter, seed.sub]
-    );
-
-    for (const v of seed.verses) {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
-        [seed.bookId, seed.chapter, v.verse, v.dar, v.lsg, v.kjv]
-      );
-    }
-  }
 }
 
 export async function loadBibleDb(): Promise<any> {
+  const dbDir = `${FileSystem.documentDirectory}SQLite/`;
+  const dbPath = `${dbDir}bible.db`;
+
+  const info = await FileSystem.getInfoAsync(dbPath);
+  if (!info.exists) {
+    const asset = Asset.fromModule(require('../../assets/bible.db'));
+    await asset.downloadAsync();
+    await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
+    await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
+  }
+
   const db = await SQLite.openDatabaseAsync('bible.db');
-  await initBibleDb(db);
+  const row = (await db.getFirstAsync('SELECT COUNT(*) AS cnt FROM books')) as { cnt: number } | null;
+  if (!row || row.cnt === 0) {
+    await initBibleDb(db);
+  }
   return db;
 }
 
@@ -86,53 +71,72 @@ export async function downloadChapterFromApi(
   bookId: string,
   chapterNum: number
 ): Promise<{ success: boolean; versesStored: number; error?: string }> {
-  const nameEn = BOOK_NAMES_EN[bookId];
-  if (!nameEn) return { success: false, versesStored: 0, error: `Unknown book ID: ${bookId}` };
+  // bible-api.com doesn't support Segond — use GitHub raw data instead
+  const OSIS_MAP: Record<string, string> = {
+    gen: 'Gen', ex: 'Exod', lev: 'Lev', num: 'Num', deu: 'Deut',
+    jos: 'Josh', jug: 'Judg', rut: 'Ruth', '1sa': '1Sam', '2sa': '2Sam',
+    '1ro': '1Kgs', '2ro': '2Kgs', '1ch': '1Chr', '2ch': '2Chr',
+    ezd: 'Ezra', neh: 'Neh', est: 'Esth', job: 'Job', ps: 'Ps',
+    pro: 'Prov', ecc: 'Eccl', cant: 'Song', esa: 'Isa', jer: 'Jer',
+    la: 'Lam', eze: 'Ezek', dan: 'Dan', hos: 'Hos', joe: 'Joel',
+    am: 'Amos', abd: 'Obad', jon: 'Jonah', mi: 'Mic', nah: 'Nah',
+    hab: 'Hab', soph: 'Zeph', agg: 'Hag', zac: 'Zech', mal: 'Mal',
+    mat: 'Matt', mar: 'Mark', luc: 'Luke', jean: 'John', act: 'Acts',
+    rom: 'Rom', '1co': '1Cor', '2co': '2Cor', gal: 'Gal', eph: 'Eph',
+    phi: 'Phil', col: 'Col', '1ts': '1Thess', '2ts': '2Thess',
+    '1ti': '1Tim', '2ti': '2Tim', tit: 'Titus', phm: 'Phlm',
+    heb: 'Heb', jac: 'Jas', '1pi': '1Pet', '2pi': '2Pet',
+    '1jo': '1John', '2jo': '2John', '3jo': '3John', jud: 'Jude', apo: 'Rev',
+  };
+
+  const osis = OSIS_MAP[bookId];
+  if (!osis) return { success: false, versesStored: 0, error: `Unknown book: ${bookId}` };
+
+  const VERSION_SLUGS: Record<string, string> = {
+    kjv: 'eng/eng-kjv',
+    dar: 'fr/fr-darby',
+    lsg: 'fr/fr-lsg',
+  };
 
   try {
-    const baseUrl = `https://bible-api.com/${nameEn}+${chapterNum}?verse_numbers=true`;
+    const results = await Promise.all(
+      (['kjv', 'dar', 'lsg'] as const).map(async (v) => {
+        const url = `https://cdn.jsdelivr.net/npm/@bible-json/core@1/data/versions/${VERSION_SLUGS[v]}/books/${osis}.json`;
+        const resp = await fetch(url);
+        if (!resp.ok) return { version: v, verses: [] as { verse: number; text: string }[] };
+        const data = await resp.json();
+        const chData = data.chapters?.find((c: any) => c.chapter === chapterNum);
+        return { version: v, verses: (chData?.verses || []).map((x: any) => ({ verse: x.verse, text: x.text })) };
+      })
+    );
 
-    const [kjvResponse, lsgResponse, darResponse] = await Promise.all([
-      fetch(baseUrl),
-      fetch(`${baseUrl}&translation=segond`),
-      fetch(`${baseUrl}&translation=darby`),
+    type VerseItem = { verse: number; text: string };
+
+    const kjvVerses: VerseItem[] = results.find(r => r.version === 'kjv')?.verses || [];
+    if (kjvVerses.length === 0) {
+      return { success: false, versesStored: 0, error: 'KJV data not available' };
+    }
+
+    const darVerses: VerseItem[] = results.find(r => r.version === 'dar')?.verses || [];
+    const lsgVerses: VerseItem[] = results.find(r => r.version === 'lsg')?.verses || [];
+
+    const verseNums = new Set<number>([
+      ...kjvVerses.map(v => v.verse),
+      ...darVerses.map(v => v.verse),
+      ...lsgVerses.map(v => v.verse),
     ]);
 
-    if (!kjvResponse.ok) {
-      return { success: false, versesStored: 0, error: `KJV API returned ${kjvResponse.status}` };
-    }
+    const darMap = new Map(darVerses.map(v => [v.verse, v.text]));
+    const lsgMap = new Map(lsgVerses.map(v => [v.verse, v.text]));
+    const kjvMap = new Map(kjvVerses.map(v => [v.verse, v.text]));
 
-    const kjvData = await kjvResponse.json();
-    const lsgData = lsgResponse.ok ? await lsgResponse.json() : null;
-    const darData = darResponse.ok ? await darResponse.json() : null;
-
-    const verseMap: Map<number, { kjv: string; lsg: string | null; dar: string | null }> = new Map();
-
-    for (const v of kjvData.verses || []) {
-      verseMap.set(v.verse, { kjv: v.text, lsg: null, dar: null });
-    }
-
-    if (lsgData?.verses) {
-      for (const v of lsgData.verses) {
-        const existing = verseMap.get(v.verse);
-        if (existing) existing.lsg = v.text;
-      }
-    }
-
-    if (darData?.verses) {
-      for (const v of darData.verses) {
-        const existing = verseMap.get(v.verse);
-        if (existing) existing.dar = v.text;
-      }
-    }
-
-    const verses = Array.from(verseMap.entries())
-      .sort(([a], [b]) => a - b)
-      .map(([verseNum, texts]) => ({
-        verse: verseNum,
-        kjv: texts.kjv,
-        lsg: texts.lsg ?? '',
-        dar: texts.dar ?? '',
+    const verses = Array.from(verseNums)
+      .sort((a, b) => a - b)
+      .map(v => ({
+        verse: v,
+        kjv: kjvMap.get(v) || '',
+        dar: darMap.get(v) || '',
+        lsg: lsgMap.get(v) || '',
       }));
 
     await db.execAsync('BEGIN TRANSACTION');
@@ -141,20 +145,17 @@ export async function downloadChapterFromApi(
         'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
         [bookId, chapterNum, null]
       );
-
       for (const v of verses) {
         await db.runAsync(
           'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
           [bookId, chapterNum, v.verse, v.dar, v.lsg, v.kjv]
         );
       }
-
       await db.execAsync('COMMIT');
     } catch (e: any) {
       await db.execAsync('ROLLBACK');
       return { success: false, versesStored: 0, error: e.message };
     }
-
     return { success: true, versesStored: verses.length };
   } catch (err: any) {
     return { success: false, versesStored: 0, error: err.message };

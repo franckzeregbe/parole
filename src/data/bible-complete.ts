@@ -1,29 +1,47 @@
-// bible-complete.ts — Fetches ALL 66 books × all chapters × 3 translations from bible-api.com
+// bible-complete.ts — Fetches ALL 66 books x all chapters x 3 translations
+//
+// SOURCES (switched from bible-api.com to midvash/bible-data):
+//   KJV     -> https://github.com/midvash/bible-data (en/kjv) — King James Version
+//   Darby   -> https://github.com/midvash/bible-data (fr/darby-fr) — Bible Darby Française
+//   Segond  -> https://github.com/midvash/bible-data (fr/lsg) — Louis Segond 1910
+//
+// WHY THE SWITCH?
+//   bible-api.com does NOT support Louis Segond (French) — all Segond requests returned 404.
+//   bible-api.com also returns ENGLISH Darby, but the app expects FRENCH Darby (seed data
+//   confirms dar fields contain French text). bible-api.com rate-limits at 15 req/30s (HTTP 429),
+//   and the User Input API chokes on hyphenated book names like "1-corinthians" (HTTP 400).
+//
+//   The midvash/bible-data project (github.com/midvash/bible-data) provides all three
+//   translations as public-domain JSON, served via GitHub's raw CDN (no rate limits),
+//   with clean OSIS book codes and the correct French Darby text.
+//
 // Run: npx ts-node src/data/bible-complete.ts   (generates bible-complete.json cache)
 // Import: import { getCompleteBibleData } from './bible-complete'
 
-import { ChapterSeed, VerseDatum } from './bible-data';
+interface VerseDatum { verse: number; dar: string; lsg: string; kjv: string; }
+interface ChapterSeed { bookId: string; chapter: number; sub: string; verses: VerseDatum[]; }
 
-// ─── API book name mapping (kebab-case for bible-api.com) ──────────────────
+// ─── OSIS book codes for midvash/bible-data ──────────────────────────
 
-const API_BOOK_NAMES: Record<string, string> = {
-  gen: 'genesis', ex: 'exodus', lev: 'leviticus', num: 'numbers', deu: 'deuteronomy',
-  jos: 'joshua', jug: 'judges', rut: 'ruth', '1sa': '1-samuel', '2sa': '2-samuel',
-  '1ro': '1-kings', '2ro': '2-kings', '1ch': '1-chronicles', '2ch': '2-chronicles',
-  ezd: 'ezra', neh: 'nehemiah', est: 'esther', job: 'job', ps: 'psalms',
-  pro: 'proverbs', ecc: 'ecclesiastes', cant: 'song-of-solomon', esa: 'isaiah',
-  jer: 'jeremiah', la: 'lamentations', eze: 'ezekiel', dan: 'daniel', hos: 'hosea',
-  joe: 'joel', am: 'amos', abd: 'obadiah', jon: 'jonah', mi: 'micah', nah: 'nahum',
-  hab: 'habakkuk', soph: 'zephaniah', agg: 'haggai', zac: 'zechariah', mal: 'malachi',
-  mat: 'matthew', mar: 'mark', luc: 'luke', jean: 'john', act: 'acts', rom: 'romans',
-  '1co': '1-corinthians', '2co': '2-corinthians', gal: 'galatians', eph: 'ephesians',
-  phi: 'philippians', col: 'colossians', '1ts': '1-thessalonians', '2ts': '2-thessalonians',
-  '1ti': '1-timothy', '2ti': '2-timothy', tit: 'titus', phm: 'philemon', heb: 'hebrews',
-  jac: 'james', '1pi': '1-peter', '2pi': '2-peter', '1jo': '1-john', '2jo': '2-john',
-  '3jo': '3-john', jud: 'jude', apo: 'revelation',
+const OSIS_BOOK_NAMES: Record<string, string> = {
+  gen: 'Gen', ex: 'Exod', lev: 'Lev', num: 'Num', deu: 'Deut',
+  jos: 'Josh', jug: 'Judg', rut: 'Ruth',
+  '1sa': '1Sam', '2sa': '2Sam', '1ro': '1Kgs', '2ro': '2Kgs',
+  '1ch': '1Chr', '2ch': '2Chr', ezd: 'Ezra', neh: 'Neh',
+  est: 'Esth', job: 'Job', ps: 'Ps', pro: 'Prov',
+  ecc: 'Eccl', cant: 'Song', esa: 'Isa', jer: 'Jer',
+  la: 'Lam', eze: 'Ezek', dan: 'Dan', hos: 'Hos',
+  joe: 'Joel', am: 'Amos', abd: 'Obad', jon: 'Jonah',
+  mi: 'Mic', nah: 'Nah', hab: 'Hab', soph: 'Zeph',
+  agg: 'Hag', zac: 'Zech', mal: 'Mal',
+  mat: 'Matt', mar: 'Mark', luc: 'Luke', jean: 'John',
+  act: 'Acts', rom: 'Rom', '1co': '1Cor', '2co': '2Cor',
+  gal: 'Gal', eph: 'Eph', phi: 'Phil', col: 'Col',
+  '1ts': '1Thess', '2ts': '2Thess', '1ti': '1Tim', '2ti': '2Tim',
+  tit: 'Titus', phm: 'Phlm', heb: 'Heb', jac: 'Jas',
+  '1pi': '1Pet', '2pi': '2Pet', '1jo': '1John', '2jo': '2John',
+  '3jo': '3John', jud: 'Jude', apo: 'Rev',
 };
-
-// ─── Chapter counts per book (standard Protestant canon) ──────────────────
 
 const CHAPTER_COUNTS: Record<string, number> = {
   gen: 50, ex: 40, lev: 27, num: 36, deu: 34, jos: 24, jug: 21, rut: 4,
@@ -37,25 +55,39 @@ const CHAPTER_COUNTS: Record<string, number> = {
   '3jo': 1, jud: 1, apo: 22,
 };
 
-const CANONICAL_ORDER: string[] = Object.keys(API_BOOK_NAMES);
+const CANONICAL_ORDER: string[] = Object.keys(OSIS_BOOK_NAMES);
 
-// ─── API response types ────────────────────────────────────────────────────
+// ─── Midvash config ──────────────────────────────────────────────────
 
-interface ApiVerse {
-  verse: number;
+const MIDVASH_BASE = 'https://raw.githubusercontent.com/midvash/bible-data/main/versions';
+const VERSION_MAP: Record<string, string> = {
+  kjv: 'en/kjv',
+  darby: 'fr/darby-fr',
+  lsg: 'fr/lsg',
+};
+
+// ─── API response types ──────────────────────────────────────────────
+
+interface MvVerse {
+  number: number;
   text: string;
-  book_name: string;
+}
+
+interface MvChapter {
   chapter: number;
+  verses: MvVerse[];
 }
 
-interface ApiResponse {
-  verses: ApiVerse[];
-  reference: string;
-  translation_id: string;
-  translation_name: string;
+interface MvBook {
+  version: string;
+  book: string;
+  bookId: number;
+  englishName: string;
+  testament: string;
+  chapters: MvChapter[];
 }
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,127 +110,174 @@ function getFs(): any {
   }
 }
 
-// ─── API fetch functions ───────────────────────────────────────────────────
-
-async function fetchTranslation(
-  bookName: string,
-  chapterNum: number,
-  translation: 'kjv' | 'darby' | 'segond',
-): Promise<Record<number, string>> {
-  const param = translation === 'kjv' ? '' : `&translation=${translation}`;
-  const url = `https://bible-api.com/${bookName}+${chapterNum}?verse_numbers=true${param}`;
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} for ${bookName} ${chapterNum} ${translation}`);
+async function fetchWithRetry(url: string, retries = 5): Promise<Response> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const response = await fetch(url);
+    if (response.ok) return response;
+    if (response.status === 429 && attempt < retries - 1) {
+      const delay = Math.pow(2, attempt + 1) * 1000;
+      console.warn(`  [429] Rate limited, retry ${attempt + 1}/${retries} in ${delay}ms`);
+      await sleep(delay);
+      continue;
+    }
+    if (response.status === 404) {
+      return response;
+    }
+    throw new Error(`HTTP ${response.status} for ${url}`);
   }
-
-  const data: ApiResponse = await response.json();
-  const verses: Record<number, string> = {};
-  for (const v of data.verses) {
-    verses[v.verse] = v.text.trim();
-  }
-  return verses;
+  throw new Error(`Failed after ${retries} retries: ${url}`);
 }
 
-async function fetchChapter(bookId: string, chapterNum: number): Promise<ChapterSeed | null> {
-  const bookName = API_BOOK_NAMES[bookId];
-  if (!bookName) return null;
-
+async function fetchMidvashBook(versionKey: string, osisBook: string): Promise<MvBook | null> {
+  const url = `${MIDVASH_BASE}/${VERSION_MAP[versionKey]}/books/${osisBook}.json`;
   try {
-    const [kjv, darby, lsg] = await Promise.all([
-      fetchTranslation(bookName, chapterNum, 'kjv'),
-      fetchTranslation(bookName, chapterNum, 'darby'),
-      fetchTranslation(bookName, chapterNum, 'segond'),
-    ]);
-
-    const allVerseNums = new Set<number>([
-      ...Object.keys(kjv).map(Number),
-      ...Object.keys(darby).map(Number),
-      ...Object.keys(lsg).map(Number),
-    ]);
-
-    const verses: VerseDatum[] = Array.from(allVerseNums)
-      .sort((a, b) => a - b)
-      .map((verseNum) => ({
-        verse: verseNum,
-        dar: darby[verseNum] || '',
-        lsg: lsg[verseNum] || '',
-        kjv: kjv[verseNum] || '',
-      }));
-
-    if (verses.length === 0) return null;
-
-    return {
-      bookId,
-      chapter: chapterNum,
-      sub: '',
-      verses,
-    };
-  } catch (error) {
-    console.warn(`[bible-complete] Failed to fetch ${bookId} ${chapterNum}: ${error}`);
+    const res = await fetchWithRetry(url);
+    if (!res.ok) {
+      if (res.status === 404) {
+        console.warn(`  [404] ${versionKey} book '${osisBook}' not found`);
+      }
+      return null;
+    }
+    return (await res.json()) as MvBook;
+  } catch (err: any) {
+    console.warn(`  Failed ${versionKey}/${osisBook}: ${err.message}`);
     return null;
   }
 }
 
-// ─── Main function ─────────────────────────────────────────────────────────
+function saveCache(fs: any, cachePath: string | null, data: ChapterSeed[]): void {
+  if (fs && cachePath) {
+    try {
+      fs.writeFileSync(cachePath, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('[bible-complete] Failed to write cache:', e);
+    }
+  }
+}
+
+// ─── Main fetch function ─────────────────────────────────────────────
 
 export async function getCompleteBibleData(): Promise<ChapterSeed[]> {
-  // 1) Try loading from cache file
   const fs = getFs();
   const cachePath = getCachePath();
+  const results: ChapterSeed[] = [];
+  const fetchedKeys = new Set<string>();
+
+  // 1) Resume from cache if it exists
   if (fs && cachePath) {
     try {
       if (fs.existsSync(cachePath)) {
         const raw = fs.readFileSync(cachePath, 'utf-8');
         const data: ChapterSeed[] = JSON.parse(raw);
-        console.log(`[bible-complete] Loaded ${data.length} chapters from cache`);
-        return data;
+        for (const ch of data) {
+          results.push(ch);
+          fetchedKeys.add(`${ch.bookId}:${ch.chapter}`);
+        }
+        console.log(`[bible-complete] Loaded ${results.length} chapters from cache (${fetchedKeys.size} keys)`);
       }
     } catch (e) {
-      console.warn('[bible-complete] Cache read failed, will fetch from API:', e);
+      console.warn('[bible-complete] Cache read failed, will re-fetch:', e);
     }
   }
 
-  // 2) Fetch from API
-  console.log('[bible-complete] Fetching all chapters from bible-api.com...');
-  const results: ChapterSeed[] = [];
-  let totalChapters = 0;
-  let failedChapters = 0;
+  // 2) Compute total across all books
+  let totalExpected = 0;
+  for (const bookId of CANONICAL_ORDER) {
+    totalExpected += CHAPTER_COUNTS[bookId];
+  }
+
+  console.log(`[bible-complete] ${fetchedKeys.size}/${totalExpected} chapters cached. Starting fetch...`);
+
+  let fetchedCount = 0;
+  let failedCount = 0;
+  let segondWarnings = 0;
 
   for (const bookId of CANONICAL_ORDER) {
     const chapterCount = CHAPTER_COUNTS[bookId];
+    const osisName = OSIS_BOOK_NAMES[bookId];
+
+    // Skip book if all chapters already in cache
+    let allCached = true;
     for (let ch = 1; ch <= chapterCount; ch++) {
-      totalChapters++;
-      const chapter = await fetchChapter(bookId, ch);
-      if (chapter) {
-        results.push(chapter);
-      } else {
-        failedChapters++;
+      if (!fetchedKeys.has(`${bookId}:${ch}`)) {
+        allCached = false;
+        break;
       }
-      // Rate limiting: 50ms between requests
-      await sleep(50);
     }
+    if (allCached) {
+      console.log(`[  OK  ] ${bookId} - all ${chapterCount} chapters cached, skipping`);
+      continue;
+    }
+
+    console.log(`[FETCH ] ${bookId} (${osisName}) - ${chapterCount} chapters`);
+
+    const [kjvBook, lsgBook, darbyBook] = await Promise.all([
+      fetchMidvashBook('kjv', osisName),
+      fetchMidvashBook('lsg', osisName),
+      fetchMidvashBook('darby', osisName),
+    ]);
+
+    const getVerse = (book: MvBook | null, ch: number, verseNum: number): string => {
+      const chapter = book?.chapters?.find((c) => c.chapter === ch);
+      return chapter?.verses?.find((v) => v.number === verseNum)?.text?.trim() || '';
+    };
+
+    for (let ch = 1; ch <= chapterCount; ch++) {
+      const key = `${bookId}:${ch}`;
+      if (fetchedKeys.has(key)) continue;
+
+      const kjvCh = kjvBook?.chapters?.find((c) => c.chapter === ch);
+      const lsgCh = lsgBook?.chapters?.find((c) => c.chapter === ch);
+      const darbyCh = darbyBook?.chapters?.find((c) => c.chapter === ch);
+
+      const allVerseNums = new Set<number>();
+      if (kjvCh) kjvCh.verses.forEach((v) => allVerseNums.add(v.number));
+      if (lsgCh) lsgCh.verses.forEach((v) => allVerseNums.add(v.number));
+      if (darbyCh) darbyCh.verses.forEach((v) => allVerseNums.add(v.number));
+
+      if (allVerseNums.size === 0) {
+        failedCount++;
+        continue;
+      }
+
+      if (!lsgCh) {
+        segondWarnings++;
+      }
+
+      const verses: VerseDatum[] = Array.from(allVerseNums)
+        .sort((a, b) => a - b)
+        .map((verseNum) => ({
+          verse: verseNum,
+          dar: getVerse(darbyBook, ch, verseNum),
+          lsg: getVerse(lsgBook, ch, verseNum),
+          kjv: getVerse(kjvBook, ch, verseNum),
+        }));
+
+      results.push({ bookId, chapter: ch, sub: '', verses });
+      fetchedKeys.add(key);
+      fetchedCount++;
+    }
+
+    // Incremental save after each book
+    saveCache(fs, cachePath, results);
+
+    // Brief delay to be kind to GitHub's CDN
+    await sleep(200);
   }
 
   console.log(
-    `[bible-complete] Done. Fetched ${results.length}/${totalChapters} chapters. ${failedChapters} failed.`,
+    `[bible-complete] Done. Fetched ${fetchedCount} new chapters. ` +
+    `${totalExpected - fetchedKeys.size + fetchedCount} total. ` +
+    `${failedCount} failed. ${segondWarnings} Segond-missing chapters.`,
   );
 
-  // 3) Save to cache if possible
-  if (fs && cachePath) {
-    try {
-      fs.writeFileSync(cachePath, JSON.stringify(results, null, 2), 'utf-8');
-      console.log(`[bible-complete] Saved ${results.length} chapters to ${cachePath}`);
-    } catch (e) {
-      console.warn('[bible-complete] Failed to write cache:', e);
-    }
-  }
+  // 3) Final save
+  saveCache(fs, cachePath, results);
 
   return results;
 }
 
-// ─── Script execution (run directly with ts-node) ──────────────────────────
+// ─── Direct execution ────────────────────────────────────────────────
 
 async function generateAndCache(): Promise<void> {
   console.log('[bible-complete] Starting complete Bible data generation...');
@@ -215,7 +294,6 @@ async function generateAndCache(): Promise<void> {
   console.log(`[bible-complete] ${data.length} chapters, ${totalVerses} verses across all 3 translations`);
 }
 
-// Detect direct execution (works with ts-node and node)
 const isDirectRun =
   typeof process !== 'undefined' &&
   process.argv.length >= 2 &&

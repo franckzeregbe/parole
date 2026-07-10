@@ -12,8 +12,8 @@ function formatDate(): string {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
-export default function HomeScreen({ version, votd, onOpenBook, onPlayVotd, downloading, onDownloadChapter, available }: {
-  version: VersionId; votd: string; onOpenBook: (id: string) => void; onPlayVotd: () => void;
+export default function HomeScreen({ version, votd, onOpenBook, downloading, onDownloadChapter, available }: {
+  version: VersionId; votd: string; onOpenBook: (id: string) => void;
   downloading: Record<string, boolean>; onDownloadChapter: (bookId: string, chapterNum: number) => void;
   available: Record<string, boolean>;
 }) {
@@ -31,24 +31,9 @@ export default function HomeScreen({ version, votd, onOpenBook, onPlayVotd, down
         </View>
         <Text style={styles.votdText}>{votd}</Text>
         <View style={styles.votdFoot}>
-          <Text style={styles.votdRef}>Jean 3.16 · {VERSIONS[version]}</Text>
-          <Pressable style={styles.votdPlay} onPress={onPlayVotd}>
-            <Ionicons name="play" size={14} color={C.paper} />
-            <Text style={styles.votdPlayTxt}>  Écouter</Text>
-          </Pressable>
+          <Text style={styles.votdRef}>{VERSIONS[version]}</Text>
         </View>
       </View>
-
-      <Text style={styles.sectionLabel}>REPRENDRE</Text>
-      <Pressable style={styles.continue} onPress={() => onOpenBook('jean')}>
-        <View style={styles.contIcon}><Ionicons name="book-outline" size={21} color={C.accentDeep} /></View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.contTitle}>Jean 3</Text>
-          <Text style={styles.contSub}>L'amour de Dieu · {VERSIONS[version]}</Text>
-          <View style={styles.progTrack}><View style={styles.progFill} /></View>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={C.inkFaint} />
-      </Pressable>
 
       <Text style={styles.sectionLabel}>MES LIVRES</Text>
       <View style={styles.grid}>
@@ -87,8 +72,6 @@ const styles = StyleSheet.create({
   votdText: { fontSize: 21, fontWeight: '500', lineHeight: 30, color: C.paper, marginBottom: S.s5 },
   votdFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   votdRef: { fontSize: 13, fontWeight: '600', color: '#F3E4D3' },
-  votdPlay: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16 },
-  votdPlayTxt: { color: C.paper, fontSize: 13, fontWeight: '600' },
   sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, color: C.inkFaint, marginBottom: S.s4 },
   continue: { flexDirection: 'row', alignItems: 'center', gap: S.s4, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 18, padding: S.s4, marginBottom: S.s8 },
   contIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: C.accentTint, alignItems: 'center', justifyContent: 'center' },

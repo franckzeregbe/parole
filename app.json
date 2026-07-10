@@ -33,6 +33,9 @@
         "projectId": "3a37e441-a176-4b40-a6ad-ea584d32a83c"
       }
     },
-    "owner": "franckzeregbe"
+    "owner": "franckzeregbe",
+    "plugins": [
+      "expo-asset"
+    ]
   }
 }

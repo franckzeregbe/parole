@@ -1,22 +1,6 @@
-// bible-data.ts — Complete Bible structure: 66 books, all chapters, initial KJV/Darby/Segond seed data
-// Three chapters are fully seeded (gen:1, ps:23, jean:3). The rest have known chapter counts.
-// Use downloadChapter() from bible-db.ts to fetch missing chapters from API at runtime.
-
-export type SeedStatus = 'seeded' | 'pending';
-
-export interface VerseDatum {
-  verse: number;
-  dar: string;
-  lsg: string;
-  kjv: string;
-}
-
-export interface ChapterSeed {
-  bookId: string;
-  chapter: number;
-  sub: string;
-  verses: VerseDatum[];
-}
+// bible-data.ts — Complete Bible structure: 66 books with chapter counts
+// Books are listed canonically with testament classification.
+// Chapters are fetched on demand via bible-db.ts downloadChapterFromApi().
 
 export interface BookStructure {
   id: string;
@@ -24,10 +8,6 @@ export interface BookStructure {
   nameEn: string;
   testament: 'Ancien Testament' | 'Nouveau Testament';
   chapterCount: number;
-}
-
-export interface BookSeedMeta extends BookStructure {
-  seededChapters: { chapter: number; sub: string }[];
 }
 
 // ─── 66-book canonical order ──────────────────────────────────────────────
@@ -137,61 +117,6 @@ export function getBookStructure(): BookStructure[] {
   }));
 }
 
-// ─── Seeded chapter metadata tracker ──────────────────────────────────────
-
-const SEEDED_CHAPTERS: Set<string> = new Set();
-
-function markSeeded(bookId: string, chapter: number): void {
-  SEEDED_CHAPTERS.add(`${bookId}:${chapter}`);
-}
-
-export function isChapterSeeded(bookId: string, chapterNum: number): boolean {
-  return SEEDED_CHAPTERS.has(`${bookId}:${chapterNum}`);
-}
-
-export function getChapterInfo(bookId: string): { chapter: number; verseCount: number } | null {
-  const count = CHAPTER_COUNTS[bookId];
-  if (!count) return null;
-  return { chapter: count, verseCount: count };
-}
-
-// ─── SEED DATA ────────────────────────────────────────────────────────────
-// Genesis 1 (5 verses), Psalms 23 (6 verses), John 3:16-18 (3 verses)
-
-const SEED_FULL: ChapterSeed[] = [
-  {
-    bookId: 'gen', chapter: 1, sub: 'La création',
-    verses: [
-      { verse: 1, dar: 'Au commencement Dieu créa les cieux et la terre.', lsg: 'Au commencement, Dieu créa les cieux et la terre.', kjv: 'In the beginning God created the heaven and the earth.' },
-      { verse: 2, dar: 'Et la terre était désolation et vide, et il y avait des ténèbres sur la face de l\'abîme. Et l\'Esprit de Dieu planait sur la face des eaux.', lsg: 'La terre était informe et vide: il y avait des ténèbres à la surface de l\'abîme, et l\'esprit de Dieu se mouvait au-dessus des eaux.', kjv: 'And the earth was without form, and void; and darkness was upon the face of the deep. And the Spirit of God moved upon the face of the waters.' },
-      { verse: 3, dar: 'Et Dieu dit: Que la lumière soit. Et la lumière fut.', lsg: 'Dieu dit: Que la lumière soit! Et la lumière fut.', kjv: 'And God said, Let there be light: and there was light.' },
-      { verse: 4, dar: 'Et Dieu vit la lumière, qu\'elle était bonne; et Dieu sépara la lumière d\'avec les ténèbres.', lsg: 'Dieu vit que la lumière était bonne; et Dieu sépara la lumière d\'avec les ténèbres.', kjv: 'And God saw the light, that it was good: and God divided the light from the darkness.' },
-      { verse: 5, dar: 'Et Dieu appela la lumière Jour; et les ténèbres, il les appela Nuit. Et il y eut soir, et il y eut matin: le premier jour.', lsg: 'Dieu appela la lumière jour, et il appela les ténèbres nuit. Ainsi, il y eut un soir, et il y eut un matin: ce fut le premier jour.', kjv: 'And God called the light Day, and the darkness he called Night. And the evening and the morning were the first day.' },
-    ],
-  },
-  {
-    bookId: 'ps', chapter: 23, sub: 'Le Seigneur est mon berger',
-    verses: [
-      { verse: 1, dar: 'L\'Éternel est mon berger: je ne manquerai de rien.', lsg: 'L\'Éternel est mon berger: je ne manquerai de rien.', kjv: 'The LORD is my shepherd; I shall not want.' },
-      { verse: 2, dar: 'Il me fait reposer dans de verts pâturages, il me mène à des eaux paisibles.', lsg: 'Il me fait reposer dans de verts pâturages, il me dirige près des eaux paisibles.', kjv: 'He maketh me to lie down in green pastures: he leadeth me beside the still waters.' },
-      { verse: 3, dar: 'Il restaure mon âme; il me conduit dans des sentiers de justice, à cause de son nom.', lsg: 'Il restaure mon âme, il me conduit dans les sentiers de la justice, à cause de son nom.', kjv: 'He restoreth my soul: he leadeth me in the paths of righteousness for his name\'s sake.' },
-      { verse: 4, dar: 'Même quand je marcherais par la vallée de l\'ombre de la mort, je ne craindrai aucun mal; car tu es avec moi: ta houlette et ton bâton, ce sont eux qui me consolent.', lsg: 'Quand je marche dans la vallée de l\'ombre de la mort, je ne crains aucun mal, car tu es avec moi: ta houlette et ton bâton me rassurent.', kjv: 'Yea, though I walk through the valley of the shadow of death, I will fear no evil: for thou art with me; thy rod and thy staff they comfort me.' },
-      { verse: 5, dar: 'Tu dresses devant moi une table, en la présence de mes ennemis; tu as oint ma tête d\'huile, ma coupe est comble.', lsg: 'Tu dresses devant moi une table, en face de mes adversaires; tu oins d\'huile ma tête, et ma coupe déborde.', kjv: 'Thou preparest a table before me in the presence of mine enemies: thou anointest my head with oil; my cup runneth over.' },
-      { verse: 6, dar: 'Oui, la bonté et la gratuité me suivront tous les jours de ma vie, et mon habitation sera dans la maison de l\'Éternel pour de longs jours.', lsg: 'Oui, le bonheur et la grâce m\'accompagneront tous les jours de ma vie, et j\'habiterai dans la maison de l\'Éternel jusqu\'à la fin de mes jours.', kjv: 'Surely goodness and mercy shall follow me all the days of my life: and I will dwell in the house of the LORD for ever.' },
-    ],
-  },
-  {
-    bookId: 'jean', chapter: 3, sub: 'L\'amour de Dieu',
-    verses: [
-      { verse: 16, dar: 'Car Dieu a tant aimé le monde, qu\'il a donné son Fils unique, afin que quiconque croit en lui ne périsse pas, mais qu\'il ait la vie éternelle.', lsg: 'Car Dieu a tant aimé le monde qu\'il a donné son Fils unique, afin que quiconque croit en lui ne périsse point, mais qu\'il ait la vie éternelle.', kjv: 'For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.' },
-      { verse: 17, dar: 'Car Dieu n\'a pas envoyé son Fils dans le monde afin qu\'il jugeât le monde, mais afin que le monde fût sauvé par lui.', lsg: 'Dieu, en effet, n\'a pas envoyé son Fils dans le monde pour qu\'il juge le monde, mais pour que le monde soit sauvé par lui.', kjv: 'For God sent not his Son into the world to condemn the world; but that the world through him might be saved.' },
-      { verse: 18, dar: 'Celui qui croit en lui n\'est pas jugé, mais celui qui ne croit pas est déjà jugé, parce qu\'il n\'a pas cru au nom du Fils unique de Dieu.', lsg: 'Celui qui croit en lui n\'est point jugé; mais celui qui ne croit pas est déjà jugé, parce qu\'il n\'a pas cru au nom du Fils unique de Dieu.', kjv: 'He that believeth on him is not condemned: but he that believeth not is condemned already, because he hath not believed in the name of the only begotten Son of God.' },
-    ],
-  },
-];
-
-SEED_FULL.forEach((s) => markSeeded(s.bookId, s.chapter));
-
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export function getAllBooks(): BookStructure[] {
@@ -200,22 +125,4 @@ export function getAllBooks(): BookStructure[] {
 
 export function getBookById(id: string): BookStructure | undefined {
   return getBookStructure().find((b) => b.id === id);
-}
-
-export function getVerseCount(bookId: string, chapterNum: number): number {
-  const seeded = SEED_FULL.find((s) => s.bookId === bookId && s.chapter === chapterNum);
-  if (seeded) return seeded.verses.length;
-  return 0;
-}
-
-export function getChapterSeeds(bookId: string, chapterNum: number): ChapterSeed | undefined {
-  return SEED_FULL.find((s) => s.bookId === bookId && s.chapter === chapterNum);
-}
-
-export function getAllSeedData(): ChapterSeed[] {
-  return SEED_FULL;
-}
-
-export function getSeededChaptersForBook(bookId: string): ChapterSeed[] {
-  return SEED_FULL.filter((s) => s.bookId === bookId);
 }
