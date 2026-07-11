@@ -1,13 +1,15 @@
 import * as SQLite from 'expo-sqlite';
-import * as FileSystem from 'expo-file-system';
-import { Asset } from 'expo-asset';
-import { getAllBooks } from './bible-data';
+import { getAllBooks, getBookById } from './bible-data';
 import type { VersionId } from './bible';
+import { seedDatabase } from './bible-seed';
+import type { SQLiteDatabase } from 'expo-sqlite';
 
 export type { VersionId };
 export { VERSIONS, VLABEL, VLANG } from './bible';
 
-export async function initBibleDb(db: any): Promise<void> {
+export type BibleDb = SQLiteDatabase;
+
+export async function initBibleDb(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS books (
       id TEXT PRIMARY KEY,
@@ -33,41 +35,33 @@ export async function initBibleDb(db: any): Promise<void> {
       kjv TEXT,
       UNIQUE(book_id, chapter_number, verse_number)
     );
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_verses_book ON verses(book_id, chapter_number, verse_number);
   `);
 
   const books = getAllBooks();
   for (let i = 0; i < books.length; i++) {
     const b = books[i];
+    const chapterCount = getBookById(b.id)?.chapterCount ?? 0;
     await db.runAsync(
-      'INSERT OR IGNORE INTO books (id, name, testament, order_num, all_chapters) VALUES (?, ?, ?, ?, 0)',
-      [b.id, b.name, b.testament === 'Ancien Testament' ? 'Ancien' : 'Nouveau', i + 1]
+      'INSERT OR IGNORE INTO books (id, name, testament, order_num, all_chapters) VALUES (?, ?, ?, ?, ?)',
+      [b.id, b.name, b.testament === 'Ancien Testament' ? 'Ancien' : 'Nouveau', i + 1, chapterCount]
     );
   }
-
 }
 
-export async function loadBibleDb(): Promise<any> {
-  const dbDir = `${FileSystem.documentDirectory}SQLite/`;
-  const dbPath = `${dbDir}bible.db`;
-
-  const info = await FileSystem.getInfoAsync(dbPath);
-  if (!info.exists) {
-    const asset = Asset.fromModule(require('../../assets/bible.db'));
-    await asset.downloadAsync();
-    await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
-    await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
-  }
-
+export async function loadBibleDb(): Promise<SQLiteDatabase> {
   const db = await SQLite.openDatabaseAsync('bible.db');
-  const row = (await db.getFirstAsync('SELECT COUNT(*) AS cnt FROM books')) as { cnt: number } | null;
-  if (!row || row.cnt === 0) {
-    await initBibleDb(db);
-  }
+  await initBibleDb(db);
+  await seedDatabase(db);
   return db;
 }
 
 export async function downloadChapterFromApi(
-  db: any,
+  db: SQLiteDatabase,
   bookId: string,
   chapterNum: number
 ): Promise<{ success: boolean; versesStored: number; error?: string }> {
@@ -162,22 +156,22 @@ export async function downloadChapterFromApi(
   }
 }
 
-export async function getBookList(db: any): Promise<any[]> {
+export async function getBookList(db: SQLiteDatabase): Promise<{ id: string; name: string; testament: string; order_num: number; all_chapters: number }[]> {
   return db.getAllAsync('SELECT * FROM books ORDER BY order_num');
 }
 
 export async function getChapter(
-  db: any,
+  db: SQLiteDatabase,
   bookId: string,
   chapterNum: number
-): Promise<any> {
-  const chapter = await db.getFirstAsync(
+): Promise<{ id: number; book_id: string; chapter_number: number; sub: string | null; verses: { verse_number: number; dar: string; lsg: string; kjv: string }[] } | null> {
+  const chapter = await db.getFirstAsync<{ id: number; book_id: string; chapter_number: number; sub: string | null }>(
     'SELECT id, book_id, chapter_number, sub FROM chapters WHERE book_id = ? AND chapter_number = ?',
     [bookId, chapterNum]
   );
   if (!chapter) return null;
 
-  const verses = await db.getAllAsync(
+  const verses = await db.getAllAsync<{ verse_number: number; dar: string; lsg: string; kjv: string }>(
     'SELECT verse_number, dar, lsg, kjv FROM verses WHERE book_id = ? AND chapter_number = ? ORDER BY verse_number',
     [bookId, chapterNum]
   );
@@ -185,11 +179,31 @@ export async function getChapter(
   return { ...chapter, verses };
 }
 
+interface VerseRow {
+  book_id: string; book_name: string; chapter_number: number; verse_number: number; dar: string; lsg: string; kjv: string;
+}
+
+export async function getVerse(
+  db: SQLiteDatabase,
+  bookId: string,
+  chapter: number,
+  verse: number
+): Promise<VerseRow | null> {
+  const row = await db.getFirstAsync<VerseRow>(
+    `SELECT v.book_id, b.name AS book_name, v.chapter_number, v.verse_number, v.dar, v.lsg, v.kjv
+     FROM verses v
+     JOIN books b ON v.book_id = b.id
+     WHERE v.book_id = ? AND v.chapter_number = ? AND v.verse_number = ?`,
+    [bookId, chapter, verse]
+  );
+  return row;
+}
+
 export async function searchVerses(
-  db: any,
+  db: SQLiteDatabase,
   query: string,
   version: VersionId
-): Promise<any[]> {
+): Promise<{ book_id: string; book_name: string; chapter_number: number; verse_number: number; text: string }[]> {
   if (!['dar', 'lsg', 'kjv'].includes(version)) {
     throw new Error('Invalid version');
   }
@@ -204,18 +218,18 @@ export async function searchVerses(
 }
 
 export async function getAvailableChapters(
-  db: any,
+  db: SQLiteDatabase,
   bookId: string
 ): Promise<number[]> {
-  const rows = await db.getAllAsync(
+  const rows = await db.getAllAsync<{ chapter_number: number }>(
     'SELECT chapter_number FROM chapters WHERE book_id = ? ORDER BY chapter_number',
     [bookId]
   );
-  return rows.map((r: any) => r.chapter_number);
+  return rows.map((r) => r.chapter_number);
 }
 
 export async function insertChapterWithVerses(
-  db: any,
+  db: SQLiteDatabase,
   bookId: string,
   chapterNum: number,
   sub: string | null,

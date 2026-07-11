@@ -5,20 +5,13 @@ import { VersionId, Chapter } from '../data/bible';
 import { CANONICAL_ORDER, getBookById } from '../data/bible-data';
 import { colors as C, space as S, HL_COLORS } from '../theme';
 
-const vkey = (b: string, i: number) => `${b}:${i}`;
-const DEFAULT_CHAPTERS: Record<string, number> = { gen: 1, ps: 23, jean: 3 };
+const vkey = (b: string, c: number, v: number) => `${b}:${c}:${v}`;
 
-function getVerses(chapter: Chapter, idx: number): { text: string; verseNumber: number } {
-  const verseNumber = chapter.verseNumbers[idx] ?? idx + 1;
-  const text = chapter.text.dar?.[idx] ?? chapter.text.lsg?.[idx] ?? chapter.text.kjv?.[idx] ?? '';
-  return { text, verseNumber };
-}
-
-export default function ReaderScreen({ book, version, readSize, hl, fav, playing, playBook, readIdx, chapterData, onSelectVerse, onPrevBook, onNextBook, downloading, onDownloadChapter }: {
-  book: string; version: VersionId; readSize: number; hl: Record<string, string>; fav: Record<string, true>;
-  playing: boolean; playBook: string; readIdx: number; chapterData?: Chapter | null;
+export default function ReaderScreen({ book, chapter, version, readSize, hl, fav, playing, playBook, playChapter, readIdx, chapterData, onSelectVerse, onPrevBook, onNextBook, onPrevChapter, onNextChapter, onGoToChapter }: {
+  book: string; chapter: number; version: VersionId; readSize: number; hl: Record<string, string>; fav: Record<string, true>;
+  playing: boolean; playBook: string; playChapter: number; readIdx: number; chapterData?: Chapter | null;
   onSelectVerse: (i: number) => void; onPrevBook: () => void; onNextBook: () => void;
-  downloading: Record<string, boolean>; onDownloadChapter: (bookId: string, chapterNum: number) => void;
+  onPrevChapter: () => void; onNextChapter: () => void; onGoToChapter: (n: number) => void;
 }) {
   const chap = chapterData;
   const arr = chap?.text[version] ?? [];
@@ -26,8 +19,6 @@ export default function ReaderScreen({ book, version, readSize, hl, fav, playing
   const pos = CANONICAL_ORDER.indexOf(book);
   const prev = CANONICAL_ORDER[pos - 1]; const next = CANONICAL_ORDER[pos + 1];
   const hasContent = !!chapterData;
-  const dlKey = `${book}:${DEFAULT_CHAPTERS[book] || 1}`;
-  const isDl = downloading[dlKey];
   const scrollYRef = useRef(0);
 
   useEffect(() => {
@@ -37,19 +28,9 @@ export default function ReaderScreen({ book, version, readSize, hl, fav, playing
 
   if (!hasContent) {
     return (
-      <ScrollView contentContainerStyle={{ padding: S.s6, paddingTop: S.s10, paddingBottom: 150 }}
-        showsVerticalScrollIndicator={false}>
-        <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-          <Ionicons name="cloud-download-outline" size={48} color={C.inkFaint} />
-          <Text style={{ color: C.inkSoft, marginTop: S.s4, textAlign: 'center', fontSize: 15 }}>
-            Ce chapitre n'est pas encore téléchargé.
-          </Text>
-          <Pressable onPress={() => onDownloadChapter(book, DEFAULT_CHAPTERS[book] || 1)} style={styles.downloadBtn}>
-            <Ionicons name="download-outline" size={16} color={C.paper} />
-            <Text style={styles.downloadBtnTxt}>  {isDl ? 'Téléchargement…' : 'Télécharger'}</Text>
-          </Pressable>
-        </View>
-      </ScrollView>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 150 }}>
+        <Text style={{ color: C.inkSoft, fontSize: 15 }}>Chargement…</Text>
+      </View>
     );
   }
 
@@ -68,12 +49,21 @@ export default function ReaderScreen({ book, version, readSize, hl, fav, playing
         <Text style={styles.chapSub}>{chap!.sub}</Text>
       </View>
 
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chapStrip}>
+        {Array.from({ length: getBookById(book)?.chapterCount ?? 0 }, (_, n) => n + 1).map((n) => (
+          <Pressable key={n} onPress={() => onGoToChapter(n)}
+            style={[styles.chapPill, chapter === n && styles.chapPillActive]}>
+            <Text style={[styles.chapPillTxt, chapter === n && styles.chapPillTxtActive]}>{n}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
       <Text style={{ fontSize: readSize, lineHeight: readSize * 1.8, color: C.ink }}>
         {arr.map((t: string, i: number) => {
-          const k = vkey(book, i);
+          const vn = chap!.verseNumbers[i];
+          const k = vkey(book, chapter, vn);
           const bg = playing && book === playBook && i === readIdx
             ? C.hlReading : hl[k] ? HL_COLORS[hl[k]] : 'transparent';
-          const vn = chap!.verseNumbers[i] ?? i + 1;
           return (
             <Text key={i} onPress={() => onSelectVerse(i)}
               style={{ backgroundColor: bg, borderRadius: 6 }}>
@@ -87,6 +77,17 @@ export default function ReaderScreen({ book, version, readSize, hl, fav, playing
       </Text>
 
       <View style={styles.chapNav}>
+        <Pressable style={[styles.chapNavBtn, chapter <= 1 && { opacity: 0.4 }]} disabled={chapter <= 1} onPress={onPrevChapter}>
+          <Ionicons name="chevron-back" size={16} color={C.inkSoft} />
+          <Text style={styles.chapNavTxt}>  Chapitre préc.</Text>
+        </Pressable>
+        <Pressable style={[styles.chapNavBtn, chapter >= (getBookById(book)?.chapterCount ?? 0) && { opacity: 0.4 }]} disabled={chapter >= (getBookById(book)?.chapterCount ?? 0)} onPress={onNextChapter}>
+          <Text style={styles.chapNavTxt}>Chapitre suiv.  </Text>
+          <Ionicons name="chevron-forward" size={16} color={C.inkSoft} />
+        </Pressable>
+      </View>
+
+      <View style={[styles.chapNav, { marginTop: S.s3 }]}>
         <Pressable style={[styles.chapNavBtn, !prev && { opacity: 0.4 }]} disabled={!prev} onPress={onPrevBook}>
           <Ionicons name="arrow-back" size={16} color={C.inkSoft} />
           <Text style={styles.chapNavTxt}>  {prev ? (getBookById(prev)?.name ?? prev) : 'Début'}</Text>
@@ -111,6 +112,9 @@ const styles = StyleSheet.create({
   chapNav: { flexDirection: 'row', justifyContent: 'space-between', gap: S.s3, marginTop: S.s12 },
   chapNavBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.line, backgroundColor: C.surface, borderRadius: 14, paddingVertical: 15 },
   chapNavTxt: { fontSize: 13, fontWeight: '600', color: C.inkSoft },
-  downloadBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.accent, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 24, marginTop: S.s4 },
-  downloadBtnTxt: { color: C.paper, fontSize: 15, fontWeight: '600', marginLeft: S.s1 },
+  chapStrip: { flexDirection: 'row', gap: S.s2, paddingVertical: S.s2 },
+  chapPill: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: C.line, backgroundColor: C.surface },
+  chapPillActive: { backgroundColor: C.accent, borderColor: C.accent },
+  chapPillTxt: { fontSize: 13, fontWeight: '600', color: C.inkSoft },
+  chapPillTxtActive: { color: C.paper },
 });

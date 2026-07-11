@@ -38,6 +38,7 @@ export default function SettingsScreen({ sizeStep, setSizeStep, version, continu
       <View style={styles.setGroup}>
         <View style={styles.setRow}><Text style={styles.setLbl}>Versets surlignés</Text><Text style={{ fontWeight: '600', color: C.inkSoft }}>{hlCount}</Text></View>
         <View style={[styles.setRow, styles.setRowLast]}><Text style={styles.setLbl}>Versets en favoris</Text><Text style={{ fontWeight: '600', color: C.inkSoft }}>{favCount}</Text></View>
+        <View style={styles.setRowInfo}><Text style={styles.setLbl}>Bible</Text><Text style={styles.setSub}>66 livres · 3 versions</Text></View>
       </View>
     </ScrollView>
   );
@@ -48,6 +49,7 @@ const styles = StyleSheet.create({
   setGroup: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 18, overflow: 'hidden', marginBottom: S.s5 },
   setRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: S.s4, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.line, gap: S.s4 },
   setRowLast: { borderBottomWidth: 0 },
+  setRowInfo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: S.s4, paddingVertical: 14, gap: S.s4 },
   setLbl: { fontSize: 15, fontWeight: '500', color: C.ink },
   setSub: { fontSize: 12, color: C.inkFaint, marginTop: 3 },
   sizeCtrl: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.line, borderRadius: 12, overflow: 'hidden' },

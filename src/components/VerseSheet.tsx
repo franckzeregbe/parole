@@ -5,22 +5,22 @@ import * as Clipboard from 'expo-clipboard';
 import { VersionId, Chapter, VLABEL } from '../data/bible';
 import { colors as C, space as S, HL_COLORS } from '../theme';
 import Sheet, { SheetAct } from './Sheet';
+import { useToast } from './Toast';
 
-export default function VerseSheet({ book, idx, version, hl, isFav, onClose, onHighlight, onToggleFav, onListen, chapterCache }: {
-  book: string; idx: number; version: VersionId; hl: string | undefined; isFav: boolean;
+export default function VerseSheet({ book, chapter, idx, version, chapterData, hl, isFav, onClose, onHighlight, onToggleFav, onListen }: {
+  book: string; chapter: number; idx: number; version: VersionId; chapterData: Chapter | null; hl: string | undefined; isFav: boolean;
   onClose: () => void; onHighlight: (c: string) => void; onToggleFav: () => void; onListen: () => void;
-  chapterCache: Record<string, Chapter>;
 }) {
+  const { showToast } = useToast();
   const [compare, setCompare] = useState(false);
-  const chap = chapterCache[book];
+  const chap = chapterData;
+  const quote = chapterData ? chapterData.text[version][idx] : '';
   const swatches = ['', 'yellow', 'green', 'blue', 'pink', 'peach'];
 
   const copyVerse = useCallback(() => {
-    if (!chap) return;
-    const vn = chap.verseNumbers[idx] ?? idx + 1;
-    const text = `${chap.name} ${chap.chapter}.${vn} — ${chap.text[version][idx]}`;
-    try { Clipboard.setString(text); } catch { /* fallback */ }
-  }, [chap, version, idx]);
+    Clipboard.setString(quote);
+    showToast('Verset copié');
+  }, [quote, showToast]);
 
   if (!chap) return null;
 

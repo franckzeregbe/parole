@@ -1,29 +1,29 @@
-import React, { Component, useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, Pressable, TextInput, StyleSheet,
+  View, Text, Pressable, StyleSheet,
   SafeAreaView, StatusBar, Animated, Easing, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
-import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  VERSIONS, VLABEL, VLANG, VersionId, Chapter,
+  VLANG, VersionId, Chapter,
 } from './src/data/bible';
 import {
-  loadBibleDb, getChapter, getBookList, searchVerses as searchVersesDb,
-  downloadChapterFromApi,
+  loadBibleDb, getChapter, getVerse,
 } from './src/data/bible-db';
-import { getAllBooks, CANONICAL_ORDER, getBookById } from './src/data/bible-data';
-import { colors as C, space as S, type as T, HL_COLORS } from './src/theme';
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { CANONICAL_ORDER, getBookById, getAllBooks } from './src/data/bible-data';
+import { colors as C, space as S, type as T } from './src/theme';
+import { useAppFonts } from './src/hooks/useAppFonts';
+import { ToastProvider } from './src/components/Toast';
+import { getVerseOfTheDay } from './src/data/votd';
+
 
 import ErrorBoundary from './src/components/ErrorBoundary';
 import IconBtn from './src/components/IconBtn';
 import VersionSwitch from './src/components/VersionSwitch';
 import TabBtn from './src/components/TabBtn';
-import Toggle from './src/components/Toggle';
-import Hint from './src/components/Hint';
-import Sheet from './src/components/Sheet';
 import MiniPlayer from './src/components/MiniPlayer';
 import NowPlaying from './src/components/NowPlaying';
 import BookPicker from './src/components/BookPicker';
@@ -36,7 +36,7 @@ import SettingsScreen from './src/components/SettingsScreen';
 
 type Tab = 'home' | 'read' | 'search' | 'fav' | 'settings';
 const SPEEDS = [0.75, 1, 1.25, 1.5];
-const vkey = (b: string, i: number) => `${b}:${i}`;
+const vkey = (b: string, c: number, v: number) => `${b}:${c}:${v}`;
 
 
 function formatDate(): string {
@@ -46,23 +46,8 @@ function formatDate(): string {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
-function dbChapterToChapterData(bookName: string, dbChapter: any): Chapter {
-  const verses = dbChapter.verses ?? [];
-  return {
-    name: bookName,
-    chapter: dbChapter.chapter_number,
-    sub: dbChapter.sub || '',
-    verseNumbers: verses.map((v: any) => v.verse_number),
-    text: {
-      dar: verses.map((v: any) => v.dar ?? ''),
-      lsg: verses.map((v: any) => v.lsg ?? ''),
-      kjv: verses.map((v: any) => v.kjv ?? ''),
-    },
-  };
-}
-
 export default function App() {
-  const [tab, setTab] = useState<Tab>('read');
+  const [tab, setTab] = useState<Tab>('home');
   const [book, setBook] = useState('jean');
   const [version, setVersion] = useState<VersionId>('dar');
   const [hl, setHl] = useState<Record<string, string>>({});
@@ -80,19 +65,20 @@ export default function App() {
   const [sheetVerse, setSheetVerse] = useState<number | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [chapter, setChapter] = useState(1);
+  const [playChapter, setPlayChapter] = useState(1);
   const [chapterData, setChapterData] = useState<Chapter | null>(null);
-  const [downloading, setDownloading] = useState<Record<string, boolean>>({});
-  const [available, setAvailable] = useState<Record<string, boolean>>({});
-  const [dbReady, setDbReady] = useState<any>(null);
-  const votd = '';
+  const [dbReady, setDbReady] = useState<SQLiteDatabase | null>(null);
+  const [votd, setVotd] = useState<{ ref: string; bookId: string; chapter: number; verse: number; text: Record<VersionId, string> } | null>(null);
   const tabAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     tabAnim.setValue(0);
     Animated.timing(tabAnim, { toValue: 1, duration: 200, useNativeDriver: true, easing: Easing.out(Easing.cubic) }).start();
   }, [tab]);
 
-  const dbRef = useRef<any>(null);
+  const dbRef = useRef<SQLiteDatabase | null>(null);
   const chapterCache = useRef<Record<string, Chapter>>({});
+  const chapterRef = useRef(1);
 
   useEffect(() => {
     (async () => {
@@ -100,62 +86,46 @@ export default function App() {
         const db = await loadBibleDb();
         dbRef.current = db;
         setDbReady(db);
-
-        const avail: Record<string, boolean> = {};
-        const chapterRows = await db.getAllAsync('SELECT DISTINCT book_id FROM chapters');
-        for (const row of chapterRows) {
-          avail[row.book_id] = true;
+        const v = getVerseOfTheDay();
+        const row = await getVerse(db, v.bookId, v.chapter, v.verse);
+        if (row) {
+          setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar: row.dar, lsg: row.lsg, kjv: row.kjv } });
         }
-        setAvailable(avail);
       } catch (e) { console.warn('DB init failed', e); }
     })();
   }, []);
 
   useEffect(() => {
     setChapterData(null);
-    if (!dbRef.current) return;
+    const d = dbRef.current;
+    if (!d) return;
     (async () => {
       try {
-        const dbChap = await getChapter(dbRef.current, book, 1);
+        const dbChap = await getChapter(d, book, chapter);
         if (dbChap) {
-          const list = await getBookList(dbRef.current);
-          const info = list.find((b: any) => b.id === book);
-          const chap = dbChapterToChapterData(info?.name || book, dbChap);
-          chapterCache.current[book] = chap;
+          const name = getBookById(book)?.name ?? book;
+          const verses = dbChap.verses ?? [];
+          const chap: Chapter = {
+            name,
+            chapter: dbChap.chapter_number,
+            sub: dbChap.sub || '',
+            verseNumbers: verses.map((v: any) => v.verse_number),
+            text: {
+              dar: verses.map((v: any) => v.dar ?? ''),
+              lsg: verses.map((v: any) => v.lsg ?? ''),
+              kjv: verses.map((v: any) => v.kjv ?? ''),
+            },
+          };
+          chapterCache.current[`${book}:${chapter}`] = chap;
           setChapterData(chap);
         }
       } catch (e) { console.warn('Failed to load chapter', e); }
     })();
-  }, [book]);
+  }, [book, chapter]);
 
-  const downloadChapter = async (bookId: string, chapterNum: number) => {
-    const key = `${bookId}:${chapterNum}`;
-    if (downloading[key]) return;
-    setDownloading(p => ({ ...p, [key]: true }));
-    try {
-      if (!dbRef.current) {
-        dbRef.current = await loadBibleDb();
-      }
-      const result = await downloadChapterFromApi(dbRef.current, bookId, chapterNum);
-      if (result.success) {
-        setAvailable(p => ({ ...p, [bookId]: true }));
-        if (book === bookId) {
-          const c = await getChapter(dbRef.current, bookId, chapterNum);
-          if (c) {
-            const list = await getBookList(dbRef.current);
-            const info = list.find((b: any) => b.id === bookId);
-            const chap = dbChapterToChapterData(info?.name || bookId, c);
-            chapterCache.current[bookId] = chap;
-            setChapterData(chap);
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Download failed', e);
-    } finally {
-      setDownloading(p => ({ ...p, [key]: false }));
-    }
-  };
+  useEffect(() => { setChapter(1); }, [book]);
+
+
 
   const readSize = T.base + 4 + sizeStep * 1.4;
 
@@ -191,55 +161,81 @@ export default function App() {
   useEffect(() => { playingRef.current = playing; }, [playing]);
   useEffect(() => { idxRef.current = readIdx; }, [readIdx]);
   useEffect(() => { bookRef.current = playBook; }, [playBook]);
+  useEffect(() => { chapterRef.current = playChapter; }, [playChapter]);
   useEffect(() => { versionRef.current = version; }, [version]);
   useEffect(() => { continuousRef.current = continuous; }, [continuous]);
 
   const endPlayback = useCallback(() => { setPlaying(false); playingRef.current = false; Speech.stop(); }, []);
 
-  const speakFn = useRef<(idx: number, bk: string) => void>(() => {});
+  const speakFn = useRef<(idx: number, bk: string, ch: number) => void>(() => {});
   const advanceFn = useRef<() => void>(() => {});
+
+  const cacheChapter = async (bk: string, ch: number): Promise<Chapter | null> => {
+    const key = `${bk}:${ch}`;
+    if (chapterCache.current[key]) return chapterCache.current[key];
+    if (!dbRef.current) return null;
+    try {
+      const d = await getChapter(dbRef.current, bk, ch);
+      if (!d) return null;
+      const name = getBookById(bk)?.name ?? bk;
+      const verses = d.verses ?? [];
+      const chap: Chapter = {
+        name,
+        chapter: d.chapter_number,
+        sub: d.sub || '',
+        verseNumbers: verses.map((v: any) => v.verse_number),
+        text: {
+          dar: verses.map((v: any) => v.dar ?? ''),
+          lsg: verses.map((v: any) => v.lsg ?? ''),
+          kjv: verses.map((v: any) => v.kjv ?? ''),
+        },
+      };
+      chapterCache.current[key] = chap;
+      return chap;
+    } catch { return null; }
+  };
 
   advanceFn.current = async () => {
     if (!playingRef.current) { endPlayback(); return; }
     const bk = bookRef.current;
+    const ch = chapterRef.current;
     const v = versionRef.current;
-    const chap = chapterCache.current[bk];
+    const chap = chapterCache.current[`${bk}:${ch}`];
     if (!chap) { endPlayback(); return; }
     const arr = chap.text[v];
     if (!arr || arr.length === 0) { endPlayback(); return; }
     const cur = idxRef.current;
     if (cur < arr.length - 1) {
-      const n = cur + 1; setReadIdx(n); speakFn.current(n, bk); return;
+      const n = cur + 1; setReadIdx(n); speakFn.current(n, bk, ch); return;
+    }
+    const maxCh = getBookById(bk)?.chapterCount ?? 0;
+    if (ch < maxCh) {
+      const nc = ch + 1;
+      const c = await cacheChapter(bk, nc);
+      if (c) {
+        setChapter(nc); setChapterData(c); setPlayChapter(nc); chapterRef.current = nc;
+        setReadIdx(0); speakFn.current(0, bk, nc); return;
+      }
     }
     if (continuousRef.current) {
       const pos = CANONICAL_ORDER.indexOf(bk);
       const next = CANONICAL_ORDER[pos + 1];
       if (next) {
-        if (!chapterCache.current[next]) {
-          try {
-            if (dbRef.current) {
-              const c = await getChapter(dbRef.current, next, 1);
-              if (c) {
-                const list = await getBookList(dbRef.current);
-                const info = list.find((b: any) => b.id === next);
-                chapterCache.current[next] = dbChapterToChapterData(info?.name || next, c);
-              }
-            }
-          } catch {}
-        }
-        if (chapterCache.current[next]) {
-          setPlayBook(next); setBook(next); setReadIdx(0); bookRef.current = next;
-          speakFn.current(0, next); return;
+        const c = await cacheChapter(next, 1);
+        if (c) {
+          setBook(next); setPlayBook(next); bookRef.current = next;
+          setChapter(1); setChapterData(c); setPlayChapter(1); chapterRef.current = 1;
+          setReadIdx(0); speakFn.current(0, next, 1); return;
         }
       }
     }
     endPlayback();
   };
 
-  speakFn.current = (idx: number, bk: string) => {
+  speakFn.current = (idx: number, bk: string, ch: number) => {
     Speech.stop();
     const v = versionRef.current;
-    const chap = chapterCache.current[bk];
+    const chap = chapterCache.current[`${bk}:${ch}`];
     if (!chap) { endPlayback(); return; }
     const arr = chap.text[v];
     if (!arr || idx >= arr.length) { endPlayback(); return; }
@@ -251,46 +247,76 @@ export default function App() {
     });
   };
 
-  const startPlayback = (idx: number, bk = book) => {
+  const startPlayback = (idx: number, bk = book, ch = chapter) => {
     setPlayBook(bk); bookRef.current = bk;
+    setPlayChapter(ch); chapterRef.current = ch;
     setReadIdx(idx); idxRef.current = idx;
     setPlaying(true); playingRef.current = true;
     setShowMini(true); setTab('read');
-    speakFn.current(idx, bk);
+    speakFn.current(idx, bk, ch);
   };
   const stopPlayback = () => { endPlayback(); setShowMini(false); setShowNow(false); setReadIdx(-1); };
   const togglePlay = () => {
     if (playingRef.current) { setPlaying(false); playingRef.current = false; Speech.stop(); }
-    else { setPlaying(true); playingRef.current = true; speakFn.current(idxRef.current, bookRef.current); }
+    else { setPlaying(true); playingRef.current = true; speakFn.current(idxRef.current, bookRef.current, chapterRef.current); }
   };
   const nextVerse = () => { Speech.stop(); advanceFn.current(); };
   const prevVerse = () => {
     Speech.stop();
-    const n = Math.max(0, idxRef.current - 1);
-    setReadIdx(n); idxRef.current = n; setPlaying(true); playingRef.current = true;
-    speakFn.current(n, bookRef.current);
+    const bk = bookRef.current; const ch = chapterRef.current; const cur = idxRef.current;
+    if (cur > 0) {
+      const n = cur - 1; setReadIdx(n); idxRef.current = n; setPlaying(true); playingRef.current = true;
+      speakFn.current(n, bk, ch);
+    } else if (ch > 1) {
+      (async () => {
+        const c = await cacheChapter(bk, ch - 1);
+        if (c) {
+          const pc = ch - 1;
+          setChapter(pc); setChapterData(c); setPlayChapter(pc); chapterRef.current = pc;
+          const n = c.verseNumbers.length - 1;
+          setReadIdx(n); idxRef.current = n; setPlaying(true); playingRef.current = true;
+          speakFn.current(n, bk, pc);
+        }
+      })();
+    } else {
+      setPlaying(false); playingRef.current = false; Speech.stop();
+    }
   };
   const cycleSpeed = () => setSpeedIdx((i) => (i + 1) % SPEEDS.length);
-  useEffect(() => { if (playingRef.current) speakFn.current(idxRef.current, bookRef.current); }, [speedIdx]);
+  useEffect(() => { if (playingRef.current) speakFn.current(idxRef.current, bookRef.current, chapterRef.current); }, [speedIdx]);
   useEffect(() => () => { Speech.stop(); }, []);
 
   const chap = chapterData;
 
   const setHighlight = (i: number, c: string) => {
-    const k = vkey(book, i);
+    const vn = chapterData?.verseNumbers[i] ?? i;
+    const k = vkey(book, chapter, vn);
     setHl((prev) => { const n = { ...prev }; if (c) n[k] = c; else delete n[k]; return n; });
   };
   const toggleFav = (i: number) => {
-    const k = vkey(book, i);
+    const vn = chapterData?.verseNumbers[i] ?? i;
+    const k = vkey(book, chapter, vn);
     setFav((prev) => { const n = { ...prev }; if (n[k]) delete n[k]; else n[k] = true; return n; });
   };
-  const navigateToVerse = (bid: string) => {
+  const navigateToVerse = (bid: string, ch = 1, _vs?: number) => {
     setBook(bid);
+    setChapter(ch);
     setTab('read');
   };
 
+  const { fontsLoaded } = useAppFonts();
+  if (!fontsLoaded || !dbReady) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.paper }}>
+        <Text style={{ fontSize: 40, fontWeight: '700', color: C.accent, letterSpacing: 1 }}>PAROLE</Text>
+        <Text style={{ fontSize: 14, color: C.inkFaint, marginTop: 10 }}>Préparation de la Bible…</Text>
+      </View>
+    );
+  }
+
   return (
     <ErrorBoundary>
+      <ToastProvider>
       <SafeAreaView style={styles.app}>
         <StatusBar barStyle="dark-content" />
 
@@ -320,17 +346,27 @@ export default function App() {
 
         <Animated.View style={[styles.screens, { opacity: tabAnim }]}>
           {tab === 'home' && (
-            <HomeScreen version={version} votd={votd} onOpenBook={(id: string) => { setBook(id); setTab('read'); }}
-              downloading={downloading} onDownloadChapter={downloadChapter} available={available} />
+            <HomeScreen version={version} votd={votd}
+              onOpenBook={(id: string) => { setBook(id); setTab('read'); }}
+              books={getAllBooks().map((b: any) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount }))}
+              onPlayVotd={() => {
+                if (votd) {
+                  setBook(votd.bookId); setChapter(votd.chapter);
+                  const idx = chapterData?.verseNumbers.indexOf(votd.verse) ?? 0;
+                  startPlayback(Math.max(0, idx), votd.bookId, votd.chapter);
+                }
+              }} />
           )}
           {tab === 'read' && (
             <ReaderScreen
-              book={book} version={version} readSize={readSize}
-              hl={hl} fav={fav} playing={playing} playBook={playBook} readIdx={readIdx}
+              book={book} chapter={chapter} version={version} readSize={readSize}
+              hl={hl} fav={fav} playing={playing} playBook={playBook} playChapter={playChapter} readIdx={readIdx}
               chapterData={chapterData} onSelectVerse={setSheetVerse}
               onPrevBook={() => { const p = CANONICAL_ORDER[CANONICAL_ORDER.indexOf(book) - 1]; if (p) setBook(p); }}
               onNextBook={() => { const n = CANONICAL_ORDER[CANONICAL_ORDER.indexOf(book) + 1]; if (n) setBook(n); }}
-              downloading={downloading} onDownloadChapter={downloadChapter}
+              onPrevChapter={() => { if (chapter > 1) setChapter(chapter - 1); }}
+              onNextChapter={() => { const max = getBookById(book)?.chapterCount ?? 0; if (chapter < max) setChapter(chapter + 1); }}
+              onGoToChapter={(ch: number) => setChapter(ch)}
             />
           )}
           {tab === 'search' && (
@@ -338,7 +374,7 @@ export default function App() {
               onJump={navigateToVerse} db={dbReady} />
           )}
           {tab === 'fav' && (
-            <FavScreen fav={fav} version={version} onJump={navigateToVerse} db={dbReady} chapterCache={chapterCache.current} />
+            <FavScreen fav={fav} version={version} onJump={navigateToVerse} db={dbReady} />
           )}
           {tab === 'settings' && (
             <SettingsScreen
@@ -350,7 +386,7 @@ export default function App() {
 
         {showMini && (
           <MiniPlayer
-            book={playBook} idx={readIdx} version={version} playing={playing}
+            book={playBook} chapter={playChapter} idx={readIdx} version={version} playing={playing}
             onPress={() => setShowNow(true)} onToggle={togglePlay} chapterCache={chapterCache.current} />
         )}
 
@@ -362,27 +398,28 @@ export default function App() {
           <TabBtn icon="options-outline" label="Réglages" active={tab === 'settings'} onPress={() => setTab('settings')} />
         </View>
 
-        {sheetVerse !== null && (
+        {sheetVerse !== null && chapterData && (
           <VerseSheet
-            book={book} idx={sheetVerse} version={version}
-            hl={hl[vkey(book, sheetVerse)]} isFav={!!fav[vkey(book, sheetVerse)]}
+            book={book} chapter={chapter} idx={sheetVerse} version={version}
+            chapterData={chapterData}
+            hl={hl[vkey(book, chapter, chapterData.verseNumbers[sheetVerse])]}
+            isFav={!!fav[vkey(book, chapter, chapterData.verseNumbers[sheetVerse])]}
             onClose={() => setSheetVerse(null)}
             onHighlight={(c: string) => setHighlight(sheetVerse, c)}
             onToggleFav={() => toggleFav(sheetVerse)}
-            onListen={() => { setSheetVerse(null); startPlayback(sheetVerse, book); }}
-            chapterCache={chapterCache.current}
+            onListen={() => { setSheetVerse(null); startPlayback(sheetVerse, book, chapter); }}
           />
         )}
 
         {pickerOpen && (
           <BookPicker onClose={() => setPickerOpen(false)}
-            onPick={(id: string) => { setBook(id); setPickerOpen(false); setTab('read'); }}
-            downloading={downloading} onDownloadChapter={downloadChapter} available={available} />
+            onPickChapter={(id: string, ch: number) => { setBook(id); setChapter(ch); setPickerOpen(false); setTab('read'); }}
+          />
         )}
 
         {showNow && (
           <NowPlaying
-            book={playBook} idx={readIdx} version={version} playing={playing}
+            book={playBook} chapter={playChapter} idx={readIdx} version={version} playing={playing}
             speed={SPEEDS[speedIdx]} continuous={continuous}
             onClose={() => setShowNow(false)} onStop={stopPlayback}
             onToggle={togglePlay} onPrev={prevVerse} onNext={nextVerse}
@@ -390,6 +427,7 @@ export default function App() {
             chapterCache={chapterCache.current} />
         )}
       </SafeAreaView>
+      </ToastProvider>
     </ErrorBoundary>
   );
 }

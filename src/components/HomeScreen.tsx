@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { VersionId, VERSIONS } from '../data/bible';
-import { getAllBooks } from '../data/bible-data';
+import { VersionId } from '../data/bible';
+import { VerseOfTheDay } from '../data/votd';
 import { colors as C, space as S } from '../theme';
 
 function formatDate(): string {
@@ -12,77 +12,98 @@ function formatDate(): string {
   return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
 }
 
-export default function HomeScreen({ version, votd, onOpenBook, downloading, onDownloadChapter, available }: {
-  version: VersionId; votd: string; onOpenBook: (id: string) => void;
-  downloading: Record<string, boolean>; onDownloadChapter: (bookId: string, chapterNum: number) => void;
-  available: Record<string, boolean>;
+type VotdData = VerseOfTheDay & { text: Record<VersionId, string> };
+
+function BookGrid({ books, onOpenBook }: { books: { id: string; name: string; chapterCount: number }[]; onOpenBook: (id: string) => void }) {
+  return (
+    <View style={styles.bookList}>
+      {books.map((bk) => (
+        <Pressable key={bk.id} style={styles.bookRow} onPress={() => onOpenBook(bk.id)}>
+          <View style={styles.bookRowLeft}>
+            <Text style={styles.bookName}>{bk.name}</Text>
+            <Text style={styles.bookChapters}>{bk.chapterCount} ch.</Text>
+          </View>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+function VotdCard({ votd, version, onPlay }: { votd: VotdData | null; version: VersionId; onPlay: () => void }) {
+  if (!votd) {
+    return (
+      <View style={styles.votdCard}>
+        <Text style={styles.votdLabel}>VERSET DU JOUR</Text>
+        <Text style={styles.votdText}>Chargement…</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.votdCard}>
+      <Text style={styles.votdLabel}>VERSET DU JOUR</Text>
+      <Text style={styles.votdText}>{votd.text[version]}</Text>
+      <Text style={styles.votdRef}>{votd.ref}</Text>
+      <Pressable style={styles.playBtn} onPress={onPlay}>
+        <Ionicons name="play" size={18} color={C.surface} />
+        <Text style={styles.playBtnText}>Écouter</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+export default function HomeScreen({ version, votd, onOpenBook, books, onPlayVotd }: {
+  version: VersionId;
+  votd: VotdData | null;
+  onOpenBook: (id: string) => void;
+  books: { id: string; name: string; chapterCount: number }[];
+  onPlayVotd: () => void;
 }) {
   const dateStr = useMemo(() => formatDate(), []);
 
   return (
-    <ScrollView contentContainerStyle={{ padding: S.s5, paddingBottom: 150 }} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
       <Text style={styles.greeting}>QUE LA PAIX SOIT AVEC TOI</Text>
       <Text style={styles.homeDate}>{dateStr}</Text>
 
-      <View style={styles.votd}>
-        <View style={styles.votdLabel}>
-          <Ionicons name="sparkles-outline" size={13} color="#F0D9B8" />
-          <Text style={styles.votdLabelTxt}>  VERSET DU JOUR</Text>
-        </View>
-        <Text style={styles.votdText}>{votd}</Text>
-        <View style={styles.votdFoot}>
-          <Text style={styles.votdRef}>{VERSIONS[version]}</Text>
-        </View>
-      </View>
+      <VotdCard votd={votd} version={version} onPlay={onPlayVotd} />
 
-      <Text style={styles.sectionLabel}>MES LIVRES</Text>
-      <View style={styles.grid}>
-        {getAllBooks().map((bk) => {
-          const hasSeed = available[bk.id];
-          const dlKey = `${bk.id}:1`;
-          const isDl = downloading[dlKey];
-          return (
-            <Pressable key={bk.id} style={[styles.bcard, !hasSeed && { opacity: 0.5 }]}
-              onPress={() => hasSeed ? onOpenBook(bk.id) : onDownloadChapter(bk.id, 1)}>
-              <View style={styles.bcardTop}>
-                <Text style={[styles.bcardNum, !hasSeed && { color: C.inkFaint }]}>{bk.chapterCount}</Text>
-                <Ionicons name={hasSeed ? 'arrow-up-outline' : 'download-outline'} size={16} color={C.inkFaint}
-                  style={hasSeed ? { transform: [{ rotate: '45deg' }] } : undefined} />
-              </View>
-              <Text style={styles.bcardName}>{bk.name}</Text>
-              {hasSeed ? (
-                <Text style={styles.bcardSub}>{bk.name}</Text>
-              ) : (
-                <Text style={styles.bcardSub}>{isDl ? 'Téléchargement…' : 'Télécharger'}</Text>
-              )}
-            </Pressable>
-          );
-        })}
-      </View>
+      <BookGrid books={books} onOpenBook={onOpenBook} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  greeting: { fontSize: 12, fontWeight: '700', letterSpacing: 1, color: C.accent, marginBottom: 6 },
-  homeDate: { fontSize: 29, fontWeight: '600', color: C.ink, letterSpacing: -0.5, marginBottom: S.s6 },
-  votd: { backgroundColor: C.accentDeep, borderRadius: 24, padding: S.s6, marginBottom: S.s8 },
-  votdLabel: { flexDirection: 'row', alignItems: 'center', marginBottom: S.s4 },
-  votdLabelTxt: { fontSize: 11, fontWeight: '700', letterSpacing: 1.2, color: '#F0D9B8' },
-  votdText: { fontSize: 21, fontWeight: '500', lineHeight: 30, color: C.paper, marginBottom: S.s5 },
-  votdFoot: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  votdRef: { fontSize: 13, fontWeight: '600', color: '#F3E4D3' },
-  sectionLabel: { fontSize: 12, fontWeight: '700', letterSpacing: 1, color: C.inkFaint, marginBottom: S.s4 },
-  continue: { flexDirection: 'row', alignItems: 'center', gap: S.s4, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 18, padding: S.s4, marginBottom: S.s8 },
-  contIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: C.accentTint, alignItems: 'center', justifyContent: 'center' },
-  contTitle: { fontSize: 17, fontWeight: '600', color: C.ink },
-  contSub: { fontSize: 12, color: C.inkFaint, marginTop: 2 },
-  progTrack: { height: 5, borderRadius: 3, backgroundColor: C.paper3, marginTop: 10, overflow: 'hidden' },
-  progFill: { height: '100%', width: '58%', backgroundColor: C.accent, borderRadius: 3 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: S.s3 },
-  bcard: { width: '48%', backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 18, padding: S.s4 },
-  bcardTop: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: S.s8 },
-  bcardNum: { fontSize: 27, fontWeight: '600', color: C.accent },
-  bcardName: { fontSize: 17, fontWeight: '600', color: C.ink },
-  bcardSub: { fontSize: 12, color: C.inkFaint, marginTop: 2 },
+  scroll: { padding: S.s5, paddingBottom: 150 },
+
+  greeting: { fontSize: 11, fontWeight: '700', letterSpacing: 1.5, color: C.accent, marginBottom: 4 },
+  homeDate: { fontSize: 24, fontWeight: '600', color: C.ink, letterSpacing: -0.5, marginBottom: S.s6 },
+
+  votdCard: { backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14, padding: S.s4, marginBottom: S.s4 },
+  votdLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, color: C.inkFaint, marginBottom: 6 },
+  votdText: { fontSize: 16, fontWeight: '500', color: C.ink, lineHeight: 22, fontStyle: 'italic', marginBottom: 4 },
+  votdRef: { fontSize: 12, fontWeight: '600', color: C.accentDeep, marginBottom: S.s3 },
+  playBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  playBtnText: { fontSize: 12, fontWeight: '700', color: C.surface, marginLeft: 4 },
+
+  section: { marginBottom: S.s4 },
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14,
+    paddingHorizontal: S.s4, paddingVertical: S.s3,
+  },
+  sectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sectionTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 0.8, color: C.ink },
+  sectionCount: { fontSize: 11, color: C.inkFaint },
+
+  bookList: { marginTop: 4, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14, overflow: 'hidden' },
+  bookRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: S.s4, paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.line,
+  },
+  bookRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bookName: { fontSize: 14, fontWeight: '500', color: C.ink },
+  bookChapters: { fontSize: 11, color: C.inkFaint },
+  bookRowRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dlText: { fontSize: 14, color: C.inkFaint, fontWeight: '600' },
 });

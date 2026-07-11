@@ -3,11 +3,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { VersionId, Chapter, VERSIONS } from '../data/bible';
 import { colors as C, space as S } from '../theme';
 
-export default function MiniPlayer({ book, idx, version, playing, onPress, onToggle, chapterCache }: {
-  book: string; idx: number; version: VersionId; playing: boolean; onPress: () => void; onToggle: () => void;
+export default function MiniPlayer({ book, chapter, idx, version, playing, onPress, onToggle, chapterCache }: {
+  book: string; chapter: number; idx: number; version: VersionId; playing: boolean; onPress: () => void; onToggle: () => void;
   chapterCache: Record<string, Chapter>;
 }) {
-  const chap = chapterCache[book];
+  const chap = chapterCache[`${book}:${chapter}`];
   if (!chap) return null;
   const vn = chap.verseNumbers[Math.max(0, idx)] ?? Math.max(0, idx) + 1;
   return (

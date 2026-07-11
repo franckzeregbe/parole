@@ -1,23 +1,30 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, TextInput, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { VersionId, VERSIONS } from '../data/bible';
 import { searchVerses as searchVersesDb } from '../data/bible-db';
 import { colors as C, space as S } from '../theme';
 import Hint from './Hint';
 
+interface SearchResult {
+  bid: string; text: string; bookName: string; chapterNum: number; verseNum: number;
+}
+
 export default function SearchScreen({ query, setQuery, version, onJump, db }: {
-  query: string; setQuery: (q: string) => void; version: VersionId; onJump: (bid: string) => void;
-  db: any;
+  query: string; setQuery: (q: string) => void; version: VersionId; onJump: (bookId: string, chapter: number, verse: number) => void;
+  db: SQLiteDatabase | null;
 }) {
-  const [dbResults, setDbResults] = useState<any[] | null>(null);
+  const [dbResults, setDbResults] = useState<SearchResult[] | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     if (!db || query.trim().length < 2) { setDbResults(null); return; }
-    (async () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(async () => {
       try {
         const res = await searchVersesDb(db, query.trim(), version);
-        setDbResults(res.map((r: any) => ({
+        setDbResults(res.map((r) => ({
           bid: r.book_id,
           text: r.text,
           bookName: r.book_name,
@@ -25,7 +32,8 @@ export default function SearchScreen({ query, setQuery, version, onJump, db }: {
           verseNum: r.verse_number,
         })));
       } catch { setDbResults([]); }
-    })();
+    }, 250);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [query, version, db]);
 
   const hasQuery = query.trim().length >= 2;
@@ -47,9 +55,9 @@ export default function SearchScreen({ query, setQuery, version, onJump, db }: {
       ) : dbResults.length === 0 ? (
         <Hint icon="close-circle-outline" text={`Aucun résultat pour « ${query} ».`} />
       ) : (
-        dbResults.map((r: any, idx) => {
+        dbResults.map((r, idx) => {
           return (
-            <Pressable key={idx} style={styles.result} onPress={() => onJump(r.bid)}>
+            <Pressable key={idx} style={styles.result} onPress={() => onJump(r.bid, r.chapterNum, r.verseNum)}>
               <View style={styles.resultRef}>
                 <Text style={styles.resultR}>{r.bookName} {r.chapterNum}.{r.verseNum}</Text>
                 <Text style={styles.resultV}>{VERSIONS[version]}</Text>

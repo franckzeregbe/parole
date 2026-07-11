@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { VersionId, Chapter, VLABEL } from '../data/bible';
 import { colors as C, space as S } from '../theme';
 
-export default function NowPlaying({ book, idx, version, playing, speed, continuous, onClose, onStop, onToggle, onPrev, onNext, onSpeed, onToggleCont, chapterCache }: {
-  book: string; idx: number; version: VersionId; playing: boolean; speed: number; continuous: boolean;
+export default function NowPlaying({ book, chapter, idx, version, playing, speed, continuous, onClose, onStop, onToggle, onPrev, onNext, onSpeed, onToggleCont, chapterCache }: {
+  book: string; chapter: number; idx: number; version: VersionId; playing: boolean; speed: number; continuous: boolean;
   onClose: () => void; onStop: () => void; onToggle: () => void; onPrev: () => void; onNext: () => void;
   onSpeed: () => void; onToggleCont: () => void;
   chapterCache: Record<string, Chapter>;
@@ -14,12 +14,12 @@ export default function NowPlaying({ book, idx, version, playing, speed, continu
   useEffect(() => {
     Animated.timing(y, { toValue: 0, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
-  const chap = chapterCache[book];
-  if (!chap) return null;
-  const arr = chap.text[version];
+  const chap = chapterCache[`${book}:${chapter}`];
   const safeIdx = Math.max(0, idx);
-  const pct = arr.length > 1 ? (safeIdx / (arr.length - 1)) * 100 : 0;
-  const vn = chap.verseNumbers[safeIdx] ?? safeIdx + 1;
+  const ref = chap ? `${chap.name} ${chap.chapter}.${chap.verseNumbers[safeIdx]}` : book;
+  const quote = chap ? chap.text[version][safeIdx] : '';
+  const total = chap ? chap.text[version].length : 0;
+  const pct = total > 1 ? (safeIdx / (total - 1)) * 100 : 0;
 
   return (
     <Animated.View style={[styles.now, { transform: [{ translateY: y }] }]}>
@@ -32,15 +32,15 @@ export default function NowPlaying({ book, idx, version, playing, speed, continu
 
         <View style={styles.nowArt}><Ionicons name="musical-notes" size={64} color="rgba(255,255,255,0.85)" /></View>
 
-        <Text style={styles.nowRef}>{chap.name} {chap.chapter}.{vn}</Text>
+        <Text style={styles.nowRef}>{ref}</Text>
         <Text style={styles.nowVer}>{VLABEL[version]}</Text>
-        <Text style={styles.nowQuote} numberOfLines={4}>{arr[safeIdx]}</Text>
+        <Text style={styles.nowQuote} numberOfLines={4}>{quote}</Text>
 
         <View style={{ marginTop: 'auto' }}>
           <View style={styles.nowBar}><View style={[styles.nowFill, { width: `${pct}%` }]} /></View>
           <View style={styles.nowTimes}>
             <Text style={styles.nowTimeTxt}>Verset {safeIdx + 1}</Text>
-            <Text style={styles.nowTimeTxt}>/ {arr.length}</Text>
+            <Text style={styles.nowTimeTxt}>/ {total}</Text>
           </View>
 
           <View style={styles.nowCtrls}>

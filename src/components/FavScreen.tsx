@@ -1,74 +1,51 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
-import { VersionId, Chapter, VERSIONS } from '../data/bible';
-import { getChapter, getBookList } from '../data/bible-db';
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { VersionId, VERSIONS } from '../data/bible';
+import { getVerse } from '../data/bible-db';
+import { getBookById } from '../data/bible-data';
 import { colors as C, space as S } from '../theme';
 import Hint from './Hint';
 
-const DEFAULT_CHAPTERS: Record<string, number> = { gen: 1, ps: 23, jean: 3 };
-
-function dbChapterToChapterData(bookName: string, dbChapter: any): Chapter {
-  const verses = dbChapter.verses ?? [];
-  return {
-    name: bookName,
-    chapter: dbChapter.chapter_number,
-    sub: dbChapter.sub || '',
-    verseNumbers: verses.map((v: any) => v.verse_number),
-    text: {
-      dar: verses.map((v: any) => v.dar ?? ''),
-      lsg: verses.map((v: any) => v.lsg ?? ''),
-      kjv: verses.map((v: any) => v.kjv ?? ''),
-    },
-  };
-}
-
-export default function FavScreen({ fav, version, onJump, db, chapterCache }: {
-  fav: Record<string, true>; version: VersionId; onJump: (bid: string, verseIdx?: number) => void;
-  db: any; chapterCache: Record<string, Chapter>;
+export default function FavScreen({ fav, version, onJump, db }: {
+  fav: Record<string, true>; version: VersionId; onJump: (bookId: string, chapter: number, verse: number) => void;
+  db: SQLiteDatabase | null;
 }) {
   const keys = Object.keys(fav);
-  const [favChapters, setFavChapters] = useState<Record<string, Chapter>>({});
-  const loadedBid = useRef<Set<string>>(new Set());
+  const [favItems, setFavItems] = useState<{ book: string; chapter: number; verse: number; bookName: string; text: string }[]>([]);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) { setFavItems([]); return; }
     (async () => {
       try {
-        const map: Record<string, Chapter> = {};
-        for (const k of keys) {
-          const [bid] = k.split(':');
-          if (map[bid] || chapterCache[bid] || loadedBid.current.has(bid)) continue;
-          loadedBid.current.add(bid);
-          try {
-            const c = await getChapter(db, bid, DEFAULT_CHAPTERS[bid] || 1);
-            if (c) {
-              const list = await getBookList(db);
-              const info = list.find((b: any) => b.id === bid);
-              map[bid] = dbChapterToChapterData(info?.name || bid, c);
-            }
-          } catch { /* skip */ }
-        }
-        setFavChapters(prev => ({ ...prev, ...map }));
-      } catch { /* db unavailable */ }
+        const items = keys.map((k) => {
+          const [book, ch, vs] = k.split(':');
+          return { book, chapter: Number(ch), verse: Number(vs), bookName: getBookById(book)?.name ?? book, text: '' };
+        });
+        const updated = await Promise.allSettled(
+          items.map(async (item) => {
+            const row = await getVerse(db, item.book, item.chapter, item.verse);
+            return { ...item, text: row ? row[version] : '' };
+          })
+        );
+        setFavItems(updated.filter((r) => r.status === 'fulfilled').map((r: any) => r.value));
+      } catch { setFavItems([]); }
     })();
-  }, [fav, db, chapterCache]);
+  }, [fav, version, db]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: S.s5, paddingBottom: 150 }}>
-      {keys.length === 0 ? (
+      {favItems.length === 0 ? (
         <Hint icon="bookmark-outline" text={"Aucun favori pour l'instant.\nTouchez un verset puis « Favori »."} />
       ) : (
-        keys.map((k) => {
-          const [bid, iS] = k.split(':'); const i = +iS; const c = chapterCache[bid] || favChapters[bid];
-          if (!c) return null;
-          const vn = c.verseNumbers[i] ?? i + 1;
+        favItems.map((item) => {
           return (
-            <Pressable key={k} style={styles.result} onPress={() => onJump(bid, i)}>
+            <Pressable key={`${item.book}:${item.chapter}:${item.verse}`} style={styles.result} onPress={() => onJump(item.book, item.chapter, item.verse)}>
               <View style={styles.resultRef}>
-                <Text style={styles.resultR}>{c.name} {c.chapter}.{vn}</Text>
+                <Text style={styles.resultR}>{item.bookName} {item.chapter}:{item.verse}</Text>
                 <Text style={styles.resultV}>{VERSIONS[version]}</Text>
               </View>
-              <Text style={styles.resultText}>{c.text[version][i]}</Text>
+              <Text style={styles.resultText}>{item.text}</Text>
             </Pressable>
           );
         })

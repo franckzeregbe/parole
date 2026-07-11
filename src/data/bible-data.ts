@@ -101,28 +101,30 @@ export const CANONICAL_ORDER: string[] = Object.keys(BOOK_NAMES);
 
 // ─── Build book metadata with testament ───────────────────────────────────
 
-export function getBookStructure(): BookStructure[] {
-  const ot: string[] = [
-    'gen', 'ex', 'lev', 'num', 'deu', 'jos', 'jug', 'rut', '1sa', '2sa',
-    '1ro', '2ro', '1ch', '2ch', 'ezd', 'neh', 'est', 'job', 'ps', 'pro',
-    'ecc', 'cant', 'esa', 'jer', 'la', 'eze', 'dan', 'hos', 'joe', 'am',
-    'abd', 'jon', 'mi', 'nah', 'hab', 'soph', 'agg', 'zac', 'mal',
-  ];
-  return CANONICAL_ORDER.map((id) => ({
-    id,
-    name: BOOK_NAMES[id].name,
-    nameEn: BOOK_NAMES[id].nameEn,
-    testament: (ot.includes(id) ? 'Ancien Testament' : 'Nouveau Testament') as 'Ancien Testament' | 'Nouveau Testament',
-    chapterCount: CHAPTER_COUNTS[id],
-  }));
-}
+const OT_IDS: readonly string[] = [
+  'gen', 'ex', 'lev', 'num', 'deu', 'jos', 'jug', 'rut', '1sa', '2sa',
+  '1ro', '2ro', '1ch', '2ch', 'ezd', 'neh', 'est', 'job', 'ps', 'pro',
+  'ecc', 'cant', 'esa', 'jer', 'la', 'eze', 'dan', 'hos', 'joe', 'am',
+  'abd', 'jon', 'mi', 'nah', 'hab', 'soph', 'agg', 'zac', 'mal',
+];
+const OT_SET = new Set(OT_IDS);
+
+const ALL_BOOKS: BookStructure[] = CANONICAL_ORDER.map((id) => ({
+  id,
+  name: BOOK_NAMES[id].name,
+  nameEn: BOOK_NAMES[id].nameEn,
+  testament: (OT_SET.has(id) ? 'Ancien Testament' : 'Nouveau Testament') as 'Ancien Testament' | 'Nouveau Testament',
+  chapterCount: CHAPTER_COUNTS[id],
+}));
+
+const BOOK_BY_ID_MAP = new Map<string, BookStructure>(ALL_BOOKS.map((b) => [b.id, b]));
 
 // ─── Public API ────────────────────────────────────────────────────────────
 
 export function getAllBooks(): BookStructure[] {
-  return getBookStructure();
+  return ALL_BOOKS;
 }
 
 export function getBookById(id: string): BookStructure | undefined {
-  return getBookStructure().find((b) => b.id === id);
+  return BOOK_BY_ID_MAP.get(id);
 }
