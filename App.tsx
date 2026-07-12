@@ -348,7 +348,7 @@ export default function App() {
           {tab === 'home' && (
             <HomeScreen version={version} votd={votd}
               onOpenBook={(id: string) => { setBook(id); setTab('read'); }}
-              books={getAllBooks().map((b: any) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount }))}
+              books={getAllBooks().map((b) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount, testament: b.testament }))}
               onPlayVotd={() => {
                 if (votd) {
                   setBook(votd.bookId); setChapter(votd.chapter);

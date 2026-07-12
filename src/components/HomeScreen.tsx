@@ -14,17 +14,34 @@ function formatDate(): string {
 
 type VotdData = VerseOfTheDay & { text: Record<VersionId, string> };
 
-function BookGrid({ books, onOpenBook }: { books: { id: string; name: string; chapterCount: number }[]; onOpenBook: (id: string) => void }) {
+type BookItem = { id: string; name: string; chapterCount: number; testament: string };
+
+function BookSection({ title, books, onOpenBook }: { title: string; books: BookItem[]; onOpenBook: (id: string) => void }) {
+  if (books.length === 0) return null;
   return (
-    <View style={styles.bookList}>
-      {books.map((bk) => (
-        <Pressable key={bk.id} style={styles.bookRow} onPress={() => onOpenBook(bk.id)}>
-          <View style={styles.bookRowLeft}>
-            <Text style={styles.bookName}>{bk.name}</Text>
-            <Text style={styles.bookChapters}>{bk.chapterCount} ch.</Text>
-          </View>
-        </Pressable>
-      ))}
+    <View style={{ marginBottom: S.s5 }}>
+      <Text style={styles.sectionTitle}>{title.toUpperCase()}</Text>
+      <View style={styles.bookList}>
+        {books.map((bk) => (
+          <Pressable key={bk.id} style={styles.bookRow} onPress={() => onOpenBook(bk.id)}>
+            <View style={styles.bookRowLeft}>
+              <Text style={styles.bookName}>{bk.name}</Text>
+              <Text style={styles.bookChapters}>{bk.chapterCount} ch.</Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function BookGrid({ books, onOpenBook }: { books: BookItem[]; onOpenBook: (id: string) => void }) {
+  const ot = books.filter((b) => b.testament === 'Ancien Testament');
+  const nt = books.filter((b) => b.testament === 'Nouveau Testament');
+  return (
+    <View>
+      <BookSection title="Ancien Testament" books={ot} onOpenBook={onOpenBook} />
+      <BookSection title="Nouveau Testament" books={nt} onOpenBook={onOpenBook} />
     </View>
   );
 }
@@ -55,7 +72,7 @@ export default function HomeScreen({ version, votd, onOpenBook, books, onPlayVot
   version: VersionId;
   votd: VotdData | null;
   onOpenBook: (id: string) => void;
-  books: { id: string; name: string; chapterCount: number }[];
+  books: BookItem[];
   onPlayVotd: () => void;
 }) {
   const dateStr = useMemo(() => formatDate(), []);
@@ -85,15 +102,7 @@ const styles = StyleSheet.create({
   playBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   playBtnText: { fontSize: 12, fontWeight: '700', color: C.surface, marginLeft: 4 },
 
-  section: { marginBottom: S.s4 },
-  sectionHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14,
-    paddingHorizontal: S.s4, paddingVertical: S.s3,
-  },
-  sectionLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 0.8, color: C.ink },
-  sectionCount: { fontSize: 11, color: C.inkFaint },
+  sectionTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1, color: C.inkFaint, marginBottom: S.s3, marginLeft: S.s1 },
 
   bookList: { marginTop: 4, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14, overflow: 'hidden' },
   bookRow: {
