@@ -14,11 +14,16 @@ import {
 } from './src/data/bible-db';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { CANONICAL_ORDER, getBookById, getAllBooks } from './src/data/bible-data';
-import { colors as C, space as S, type as T } from './src/theme';
+import { type as T } from './src/theme';
 import { useAppFonts } from './src/hooks/useAppFonts';
 import { ToastProvider } from './src/components/Toast';
 import { getVerseOfTheDay } from './src/data/votd';
-
+import { STORAGE_KEYS } from './src/config';
+import {
+  separateLegacyKeys, resolveLegacyRecords,
+} from './src/data/legacyMigration';
+import { ThemeProvider, useTheme } from './src/components/ThemeContext';
+import { formatDate, vkey, chapArr } from './src/utils';
 
 import ErrorBoundary from './src/components/ErrorBoundary';
 import IconBtn from './src/components/IconBtn';
@@ -36,17 +41,9 @@ import SettingsScreen from './src/components/SettingsScreen';
 
 type Tab = 'home' | 'read' | 'search' | 'fav' | 'settings';
 const SPEEDS = [0.75, 1, 1.25, 1.5];
-const vkey = (b: string, c: number, v: number) => `${b}:${c}:${v}`;
 
-
-function formatDate(): string {
-  const d = new Date();
-  const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
-  const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
-}
-
-export default function App() {
+function AppInner() {
+  const { isDark, toggleTheme } = useTheme();
   const [tab, setTab] = useState<Tab>('home');
   const [book, setBook] = useState('jean');
   const [version, setVersion] = useState<VersionId>('dar');
@@ -79,6 +76,36 @@ export default function App() {
   const dbRef = useRef<SQLiteDatabase | null>(null);
   const chapterCache = useRef<Record<string, Chapter>>({});
   const chapterRef = useRef(1);
+  const hlRef = useRef<Record<string, string>>({});
+  const favRef = useRef<Record<string, true>>({});
+  useEffect(() => { hlRef.current = hl; }, [hl]);
+  useEffect(() => { favRef.current = fav; }, [fav]);
+
+  // Holds legacy-format favorites/highlights recovered during AsyncStorage
+  // restoration, pending resolution once the database is available.
+  const legacyPending = useRef<{ hl: Record<string, string>; fav: Record<string, true> }>({ hl: {}, fav: {} });
+  const legacyMigrated = useRef(false);
+
+  // Resolve any legacy `book:verseIndex` keys into the current
+  // `book:chapter:verse` format using the database's verse layout.
+  const migrateLegacyKeys = useCallback(async (db: SQLiteDatabase) => {
+    if (legacyMigrated.current) return;
+    const { hl, fav } = legacyPending.current;
+    if (Object.keys(hl).length === 0 && Object.keys(fav).length === 0) {
+      legacyMigrated.current = true;
+      return;
+    }
+    try {
+      const [newHl, newFav] = await Promise.all([
+        resolveLegacyRecords(db, hlRef.current, hl),
+        resolveLegacyRecords(db, favRef.current, fav),
+      ]);
+      legacyPending.current = { hl: {}, fav: {} };
+      legacyMigrated.current = true;
+      setHl(newHl);
+      setFav(newFav);
+    } catch (e) { console.warn('Legacy migration failed', e); }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -87,10 +114,11 @@ export default function App() {
         dbRef.current = db;
         setDbReady(db);
         const v = getVerseOfTheDay();
-        const row = await getVerse(db, v.bookId, v.chapter, v.verse);
-        if (row) {
-          setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar: row.dar, lsg: row.lsg, kjv: row.kjv } });
-        }
+        const dar = (await getVerse(db, v.bookId, v.chapter, v.verse, 'dar'))?.verse_text ?? '';
+        const lsg = (await getVerse(db, v.bookId, v.chapter, v.verse, 'lsg'))?.verse_text ?? '';
+        const kjv = (await getVerse(db, v.bookId, v.chapter, v.verse, 'kjv'))?.verse_text ?? '';
+        setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
+        await migrateLegacyKeys(db);
       } catch (e) { console.warn('DB init failed', e); }
     })();
   }, []);
@@ -101,44 +129,47 @@ export default function App() {
     if (!d) return;
     (async () => {
       try {
-        const dbChap = await getChapter(d, book, chapter);
-        if (dbChap) {
-          const name = getBookById(book)?.name ?? book;
-          const verses = dbChap.verses ?? [];
-          const chap: Chapter = {
-            name,
-            chapter: dbChap.chapter_number,
-            sub: dbChap.sub || '',
-            verseNumbers: verses.map((v: any) => v.verse_number),
-            text: {
-              dar: verses.map((v: any) => v.dar ?? ''),
-              lsg: verses.map((v: any) => v.lsg ?? ''),
-              kjv: verses.map((v: any) => v.kjv ?? ''),
-            },
-          };
-          chapterCache.current[`${book}:${chapter}`] = chap;
-          setChapterData(chap);
-        }
+          const dbChap = await getChapter(d, book, chapter);
+          if (dbChap) {
+            const name = getBookById(book)?.name ?? book;
+            const chap: Chapter = {
+              name,
+              chapter: dbChap.chapter_number,
+              sub: dbChap.sub || '',
+              dar: dbChap.dar,
+              lsg: dbChap.lsg,
+              kjv: dbChap.kjv,
+            };
+            chapterCache.current[`${book}:${chapter}`] = chap;
+            setChapterData(chap);
+          }
       } catch (e) { console.warn('Failed to load chapter', e); }
     })();
   }, [book, chapter]);
 
   useEffect(() => { setChapter(1); }, [book]);
 
-
-
   const readSize = T.base + 4 + sizeStep * 1.4;
 
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem('parole:v1');
+        const raw = await AsyncStorage.getItem(STORAGE_KEYS.appState);
         if (raw) {
           const s = JSON.parse(raw);
-          if (s.hl && typeof s.hl === 'object') setHl(s.hl);
-          if (s.fav && typeof s.fav === 'object') setFav(s.fav);
+          const hlParsed = separateLegacyKeys<Record<string, string>>(s.hl);
+          const favParsed = separateLegacyKeys<Record<string, true>>(s.fav);
+          // Keep current-format records immediately.
+          if (hlParsed.current && Object.keys(hlParsed.current).length) setHl(hlParsed.current);
+          if (favParsed.current && Object.keys(favParsed.current).length) setFav(favParsed.current);
+          // Stash legacy-format records for DB-backed resolution.
+          legacyPending.current = { hl: hlParsed.legacy, fav: favParsed.legacy };
+          // If the DB is already available (e.g. fast path), migrate now.
+          if (dbRef.current) await migrateLegacyKeys(dbRef.current);
+
           if (typeof s.sizeStep === 'number') setSizeStep(s.sizeStep);
           if (s.version && ['dar', 'lsg', 'kjv'].includes(s.version)) setVersion(s.version);
+          if (typeof s.continuous === 'boolean') setContinuous(s.continuous);
         }
       } catch { /* first launch */ }
     })();
@@ -148,7 +179,7 @@ export default function App() {
   useEffect(() => {
     if (saveTimeout.current) clearTimeout(saveTimeout.current);
     saveTimeout.current = setTimeout(() => {
-      AsyncStorage.setItem('parole:v1', JSON.stringify({ hl, fav, sizeStep, version })).catch(() => {});
+      AsyncStorage.setItem(STORAGE_KEYS.appState, JSON.stringify({ hl, fav, sizeStep, version, continuous })).catch(() => {});
     }, 500);
     return () => { if (saveTimeout.current) clearTimeout(saveTimeout.current); };
   }, [hl, fav, sizeStep, version]);
@@ -178,19 +209,15 @@ export default function App() {
       const d = await getChapter(dbRef.current, bk, ch);
       if (!d) return null;
       const name = getBookById(bk)?.name ?? bk;
-      const verses = d.verses ?? [];
       const chap: Chapter = {
         name,
         chapter: d.chapter_number,
         sub: d.sub || '',
-        verseNumbers: verses.map((v: any) => v.verse_number),
-        text: {
-          dar: verses.map((v: any) => v.dar ?? ''),
-          lsg: verses.map((v: any) => v.lsg ?? ''),
-          kjv: verses.map((v: any) => v.kjv ?? ''),
-        },
+        dar: d.dar,
+        lsg: d.lsg,
+        kjv: d.kjv,
       };
-      chapterCache.current[key] = chap;
+      chapterCache.current[`${bk}:${ch}`] = chap;
       return chap;
     } catch { return null; }
   };
@@ -202,7 +229,7 @@ export default function App() {
     const v = versionRef.current;
     const chap = chapterCache.current[`${bk}:${ch}`];
     if (!chap) { endPlayback(); return; }
-    const arr = chap.text[v];
+    const arr = chap[v];
     if (!arr || arr.length === 0) { endPlayback(); return; }
     const cur = idxRef.current;
     if (cur < arr.length - 1) {
@@ -237,9 +264,9 @@ export default function App() {
     const v = versionRef.current;
     const chap = chapterCache.current[`${bk}:${ch}`];
     if (!chap) { endPlayback(); return; }
-    const arr = chap.text[v];
+    const arr = chap[v];
     if (!arr || idx >= arr.length) { endPlayback(); return; }
-    Speech.speak(arr[idx], {
+    Speech.speak(arr[idx].t, {
       language: VLANG[v],
       rate: SPEEDS[speedIdx],
       onDone: () => { if (playingRef.current) advanceFn.current(); },
@@ -273,7 +300,7 @@ export default function App() {
         if (c) {
           const pc = ch - 1;
           setChapter(pc); setChapterData(c); setPlayChapter(pc); chapterRef.current = pc;
-          const n = c.verseNumbers.length - 1;
+          const n = chapArr(c, versionRef.current).length - 1;
           setReadIdx(n); idxRef.current = n; setPlaying(true); playingRef.current = true;
           speakFn.current(n, bk, pc);
         }
@@ -282,6 +309,54 @@ export default function App() {
       setPlaying(false); playingRef.current = false; Speech.stop();
     }
   };
+
+  // Silent (non-audio) verse stepping used for in-reader navigation.
+  const stepReadVerse = useCallback((delta: number) => {
+    if (playingRef.current) { delta > 0 ? nextVerse() : prevVerse(); return; }
+    const bk = bookRef.current; const ch = chapterRef.current; const cur = idxRef.current;
+    const chap = chapterCache.current[`${bk}:${ch}`];
+    if (!chap) return;
+    const curArr = chap[versionRef.current];
+    if (!curArr) return;
+    const total = curArr.length;
+    const n = cur + delta;
+    if (n >= 0 && n < total) { setReadIdx(n); idxRef.current = n; return; }
+    if (delta > 0) {
+      const maxCh = getBookById(bk)?.chapterCount ?? 0;
+      if (ch < maxCh) {
+        const nc = ch + 1;
+        (async () => {
+          const c = await cacheChapter(bk, nc);
+          if (c) { setChapter(nc); setChapterData(c); setPlayChapter(nc); chapterRef.current = nc; setReadIdx(0); idxRef.current = 0; }
+        })();
+      } else {
+        const nb = CANONICAL_ORDER[CANONICAL_ORDER.indexOf(bk) + 1];
+        if (nb) {
+          (async () => {
+            const c = await cacheChapter(nb, 1);
+            if (c) { setBook(nb); setPlayBook(nb); bookRef.current = nb; setChapter(1); setChapterData(c); setPlayChapter(1); chapterRef.current = 1; setReadIdx(0); idxRef.current = 0; }
+          })();
+        }
+      }
+    } else {
+      if (ch > 1) {
+        const pc = ch - 1;
+        (async () => {
+          const c = await cacheChapter(bk, pc);
+          if (c) { setChapter(pc); setChapterData(c); setPlayChapter(pc); chapterRef.current = pc; const last = chapArr(c, versionRef.current).length - 1; setReadIdx(last); idxRef.current = last; }
+        })();
+      } else {
+        const pb = CANONICAL_ORDER[CANONICAL_ORDER.indexOf(bk) - 1];
+        if (pb) {
+          const pc = getBookById(pb)?.chapterCount ?? 1;
+          (async () => {
+            const c = await cacheChapter(pb, pc);
+            if (c) { setBook(pb); setPlayBook(pb); bookRef.current = pb; setChapter(pc); setChapterData(c); setPlayChapter(pc); chapterRef.current = pc; const last = chapArr(c, versionRef.current).length - 1; setReadIdx(last); idxRef.current = last; }
+          })();
+        }
+      }
+    }
+  }, [cacheChapter, nextVerse, prevVerse]);
   const cycleSpeed = () => setSpeedIdx((i) => (i + 1) % SPEEDS.length);
   useEffect(() => { if (playingRef.current) speakFn.current(idxRef.current, bookRef.current, chapterRef.current); }, [speedIdx]);
   useEffect(() => () => { Speech.stop(); }, []);
@@ -289,13 +364,15 @@ export default function App() {
   const chap = chapterData;
 
   const setHighlight = (i: number, c: string) => {
-    const vn = chapterData?.verseNumbers[i] ?? i;
-    const k = vkey(book, chapter, vn);
+    const cur = chapterData ? chapArr(chapterData, version)[i] : null;
+    if (!cur) return;
+    const k = vkey(book, chapter, cur.v);
     setHl((prev) => { const n = { ...prev }; if (c) n[k] = c; else delete n[k]; return n; });
   };
   const toggleFav = (i: number) => {
-    const vn = chapterData?.verseNumbers[i] ?? i;
-    const k = vkey(book, chapter, vn);
+    const cur = chapterData ? chapArr(chapterData, version)[i] : null;
+    if (!cur) return;
+    const k = vkey(book, chapter, cur.v);
     setFav((prev) => { const n = { ...prev }; if (n[k]) delete n[k]; else n[k] = true; return n; });
   };
   const navigateToVerse = (bid: string, ch = 1, _vs?: number) => {
@@ -304,8 +381,30 @@ export default function App() {
     setTab('read');
   };
 
-  const { fontsLoaded } = useAppFonts();
-  if (!fontsLoaded || !dbReady) {
+  const { colors: C, space: S } = useTheme();
+
+  const styles = StyleSheet.create({
+    app: { flex: 1, backgroundColor: C.paper },
+    offline: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: C.ink, paddingVertical: 6 },
+    offlineTxt: { color: C.paper, fontSize: 12, fontWeight: '500' },
+
+    topbar: { paddingHorizontal: S.s5, paddingTop: S.s3, paddingBottom: S.s4, backgroundColor: C.paper, borderBottomWidth: 1, borderBottomColor: C.line, gap: S.s4 },
+    topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 },
+    refBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    refTxt: { fontSize: 23, fontWeight: '600', color: C.ink, letterSpacing: -0.3 },
+    pageTitle: { fontSize: 23, fontWeight: '600', color: C.ink, letterSpacing: -0.3 },
+    barActions: { flexDirection: 'row', gap: 8 },
+
+    screens: { flex: 1, backgroundColor: C.paper },
+
+    tabbar: { flexDirection: 'row', backgroundColor: C.paper, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 8 },
+  });
+
+  // Fonts load in the background and swap in once ready (system fallback is
+  // used until then), so only the database gates the first paint. This keeps
+  // app launch instant instead of waiting on a remote font download.
+  useAppFonts();
+  if (!dbReady) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.paper }}>
         <Text style={{ fontSize: 40, fontWeight: '700', color: C.accent, letterSpacing: 1 }}>PAROLE</Text>
@@ -318,7 +417,7 @@ export default function App() {
     <ErrorBoundary>
       <ToastProvider>
       <SafeAreaView style={styles.app}>
-        <StatusBar barStyle="dark-content" />
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
         <View style={styles.topbar}>
           <View style={styles.topRow}>
@@ -347,12 +446,13 @@ export default function App() {
         <Animated.View style={[styles.screens, { opacity: tabAnim }]}>
           {tab === 'home' && (
             <HomeScreen version={version} votd={votd}
-              onOpenBook={(id: string) => { setBook(id); setTab('read'); }}
-              books={getAllBooks().map((b) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount, testament: b.testament }))}
+              onOpenBook={(id: string, ch?: number) => { setBook(id); if (ch) setChapter(ch); setTab('read'); }}
+              books={getAllBooks().map((b) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount, testament: b.testament, category: b.category }))}
               onPlayVotd={() => {
-                if (votd) {
+                if (votd && chapterData) {
+                  const arr = chapArr(chapterData, version);
+                  const idx = arr.findIndex((x) => x.v === votd.verse);
                   setBook(votd.bookId); setChapter(votd.chapter);
-                  const idx = chapterData?.verseNumbers.indexOf(votd.verse) ?? 0;
                   startPlayback(Math.max(0, idx), votd.bookId, votd.chapter);
                 }
               }} />
@@ -367,6 +467,8 @@ export default function App() {
               onPrevChapter={() => { if (chapter > 1) setChapter(chapter - 1); }}
               onNextChapter={() => { const max = getBookById(book)?.chapterCount ?? 0; if (chapter < max) setChapter(chapter + 1); }}
               onGoToChapter={(ch: number) => setChapter(ch)}
+              onPrevVerse={() => stepReadVerse(-1)}
+              onNextVerse={() => stepReadVerse(1)}
             />
           )}
           {tab === 'search' && (
@@ -402,8 +504,8 @@ export default function App() {
           <VerseSheet
             book={book} chapter={chapter} idx={sheetVerse} version={version}
             chapterData={chapterData}
-            hl={hl[vkey(book, chapter, chapterData.verseNumbers[sheetVerse])]}
-            isFav={!!fav[vkey(book, chapter, chapterData.verseNumbers[sheetVerse])]}
+            hl={(() => { const v = chapArr(chapterData, version)[sheetVerse]; return v ? hl[vkey(book, chapter, v.v)] : undefined; })()}
+            isFav={(() => { const v = chapArr(chapterData, version)[sheetVerse]; return v ? !!fav[vkey(book, chapter, v.v)] : false; })()}
             onClose={() => setSheetVerse(null)}
             onHighlight={(c: string) => setHighlight(sheetVerse, c)}
             onToggleFav={() => toggleFav(sheetVerse)}
@@ -432,19 +534,10 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  app: { flex: 1, backgroundColor: C.paper },
-  offline: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', backgroundColor: C.ink, paddingVertical: 6 },
-  offlineTxt: { color: C.paper, fontSize: 12, fontWeight: '500' },
-
-  topbar: { paddingHorizontal: S.s5, paddingTop: S.s3, paddingBottom: S.s4, backgroundColor: C.paper, borderBottomWidth: 1, borderBottomColor: C.line, gap: S.s4 },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 40 },
-  refBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  refTxt: { fontSize: 23, fontWeight: '600', color: C.ink, letterSpacing: -0.3 },
-  pageTitle: { fontSize: 23, fontWeight: '600', color: C.ink, letterSpacing: -0.3 },
-  barActions: { flexDirection: 'row', gap: 8 },
-
-  screens: { flex: 1, backgroundColor: C.paper },
-
-  tabbar: { flexDirection: 'row', backgroundColor: C.paper, borderTopWidth: 1, borderTopColor: C.line, paddingTop: 8, paddingBottom: Platform.OS === 'ios' ? 24 : 8 },
-});
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}

@@ -3,6 +3,7 @@ import { View, Text, Pressable, SafeAreaView, Animated, Easing, StyleSheet } fro
 import { Ionicons } from '@expo/vector-icons';
 import { VersionId, Chapter, VLABEL } from '../data/bible';
 import { colors as C, space as S } from '../theme';
+import { chapArr } from '../utils';
 
 export default function NowPlaying({ book, chapter, idx, version, playing, speed, continuous, onClose, onStop, onToggle, onPrev, onNext, onSpeed, onToggleCont, chapterCache }: {
   book: string; chapter: number; idx: number; version: VersionId; playing: boolean; speed: number; continuous: boolean;
@@ -16,9 +17,10 @@ export default function NowPlaying({ book, chapter, idx, version, playing, speed
   }, []);
   const chap = chapterCache[`${book}:${chapter}`];
   const safeIdx = Math.max(0, idx);
-  const ref = chap ? `${chap.name} ${chap.chapter}.${chap.verseNumbers[safeIdx]}` : book;
-  const quote = chap ? chap.text[version][safeIdx] : '';
-  const total = chap ? chap.text[version].length : 0;
+  const arr = chap ? chapArr(chap, version) : [];
+  const ref = chap ? `${chap.name} ${chap.chapter}.${arr[safeIdx]?.v ?? safeIdx + 1}` : book;
+  const quote = arr[safeIdx]?.t ?? '';
+  const total = arr.length;
   const pct = total > 1 ? (safeIdx / (total - 1)) * 100 : 0;
 
   return (

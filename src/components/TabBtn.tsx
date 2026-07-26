@@ -4,7 +4,8 @@ import { colors as C } from '../theme';
 
 export default function TabBtn({ icon, label, active, onPress }: { icon: string; label: string; active?: boolean; onPress: () => void }) {
   return (
-    <Pressable style={styles.tab} onPress={onPress}>
+    <Pressable style={styles.tab} onPress={onPress}
+      accessible accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: !!active }}>
       <Ionicons name={icon as any} size={22} color={active ? C.accent : C.inkFaint} />
       <Text style={[styles.tabTxt, { color: active ? C.accent : C.inkFaint }]}>{label}</Text>
     </Pressable>

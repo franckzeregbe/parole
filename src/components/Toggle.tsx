@@ -10,7 +10,8 @@ export default function Toggle({ on, onPress }: { on: boolean; onPress: () => vo
   const left = anim.interpolate({ inputRange: [0, 1], outputRange: [3, 24] });
   const bg = anim.interpolate({ inputRange: [0, 1], outputRange: [C.lineStrong, C.accent] });
   return (
-    <Pressable onPress={onPress}>
+    <Pressable onPress={onPress}
+      accessible accessibilityRole="switch" accessibilityLabel={on ? 'Activé' : 'Désactivé'} accessibilityState={{ checked: on }}>
       <Animated.View style={[styles.toggle, { backgroundColor: bg }]}>
         <Animated.View style={[styles.toggleKnob, { left }]} />
       </Animated.View>

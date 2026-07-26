@@ -25,21 +25,21 @@ export async function initBibleDb(db: SQLiteDatabase): Promise<void> {
       sub TEXT,
       UNIQUE(book_id, chapter_number)
     );
-    CREATE TABLE IF NOT EXISTS verses (
+    DROP TABLE IF EXISTS verses;
+    CREATE TABLE IF NOT EXISTS version_verses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      version_id TEXT NOT NULL,
       book_id TEXT NOT NULL,
       chapter_number INTEGER NOT NULL,
       verse_number INTEGER NOT NULL,
-      dar TEXT,
-      lsg TEXT,
-      kjv TEXT,
-      UNIQUE(book_id, chapter_number, verse_number)
+      verse_text TEXT NOT NULL,
+      UNIQUE(version_id, book_id, chapter_number, verse_number)
     );
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
       value TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_verses_book ON verses(book_id, chapter_number, verse_number);
+    CREATE INDEX IF NOT EXISTS idx_vv_lookup ON version_verses(version_id, book_id, chapter_number, verse_number);
   `);
 
   const books = getAllBooks();
@@ -60,101 +60,6 @@ export async function loadBibleDb(): Promise<SQLiteDatabase> {
   return db;
 }
 
-export async function downloadChapterFromApi(
-  db: SQLiteDatabase,
-  bookId: string,
-  chapterNum: number
-): Promise<{ success: boolean; versesStored: number; error?: string }> {
-  // bible-api.com doesn't support Segond — use GitHub raw data instead
-  const OSIS_MAP: Record<string, string> = {
-    gen: 'Gen', ex: 'Exod', lev: 'Lev', num: 'Num', deu: 'Deut',
-    jos: 'Josh', jug: 'Judg', rut: 'Ruth', '1sa': '1Sam', '2sa': '2Sam',
-    '1ro': '1Kgs', '2ro': '2Kgs', '1ch': '1Chr', '2ch': '2Chr',
-    ezd: 'Ezra', neh: 'Neh', est: 'Esth', job: 'Job', ps: 'Ps',
-    pro: 'Prov', ecc: 'Eccl', cant: 'Song', esa: 'Isa', jer: 'Jer',
-    la: 'Lam', eze: 'Ezek', dan: 'Dan', hos: 'Hos', joe: 'Joel',
-    am: 'Amos', abd: 'Obad', jon: 'Jonah', mi: 'Mic', nah: 'Nah',
-    hab: 'Hab', soph: 'Zeph', agg: 'Hag', zac: 'Zech', mal: 'Mal',
-    mat: 'Matt', mar: 'Mark', luc: 'Luke', jean: 'John', act: 'Acts',
-    rom: 'Rom', '1co': '1Cor', '2co': '2Cor', gal: 'Gal', eph: 'Eph',
-    phi: 'Phil', col: 'Col', '1ts': '1Thess', '2ts': '2Thess',
-    '1ti': '1Tim', '2ti': '2Tim', tit: 'Titus', phm: 'Phlm',
-    heb: 'Heb', jac: 'Jas', '1pi': '1Pet', '2pi': '2Pet',
-    '1jo': '1John', '2jo': '2John', '3jo': '3John', jud: 'Jude', apo: 'Rev',
-  };
-
-  const osis = OSIS_MAP[bookId];
-  if (!osis) return { success: false, versesStored: 0, error: `Unknown book: ${bookId}` };
-
-  const VERSION_SLUGS: Record<string, string> = {
-    kjv: 'eng/eng-kjv',
-    dar: 'fr/fr-darby',
-    lsg: 'fr/fr-lsg',
-  };
-
-  try {
-    const results = await Promise.all(
-      (['kjv', 'dar', 'lsg'] as const).map(async (v) => {
-        const url = `https://cdn.jsdelivr.net/npm/@bible-json/core@1/data/versions/${VERSION_SLUGS[v]}/books/${osis}.json`;
-        const resp = await fetch(url);
-        if (!resp.ok) return { version: v, verses: [] as { verse: number; text: string }[] };
-        const data = await resp.json();
-        const chData = data.chapters?.find((c: any) => c.chapter === chapterNum);
-        return { version: v, verses: (chData?.verses || []).map((x: any) => ({ verse: x.verse, text: x.text })) };
-      })
-    );
-
-    type VerseItem = { verse: number; text: string };
-
-    const kjvVerses: VerseItem[] = results.find(r => r.version === 'kjv')?.verses || [];
-    if (kjvVerses.length === 0) {
-      return { success: false, versesStored: 0, error: 'KJV data not available' };
-    }
-
-    const darVerses: VerseItem[] = results.find(r => r.version === 'dar')?.verses || [];
-    const lsgVerses: VerseItem[] = results.find(r => r.version === 'lsg')?.verses || [];
-
-    const verseNums = new Set<number>([
-      ...kjvVerses.map(v => v.verse),
-      ...darVerses.map(v => v.verse),
-      ...lsgVerses.map(v => v.verse),
-    ]);
-
-    const darMap = new Map(darVerses.map(v => [v.verse, v.text]));
-    const lsgMap = new Map(lsgVerses.map(v => [v.verse, v.text]));
-    const kjvMap = new Map(kjvVerses.map(v => [v.verse, v.text]));
-
-    const verses = Array.from(verseNums)
-      .sort((a, b) => a - b)
-      .map(v => ({
-        verse: v,
-        kjv: kjvMap.get(v) || '',
-        dar: darMap.get(v) || '',
-        lsg: lsgMap.get(v) || '',
-      }));
-
-    await db.execAsync('BEGIN TRANSACTION');
-    try {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
-        [bookId, chapterNum, null]
-      );
-      for (const v of verses) {
-        await db.runAsync(
-          'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
-          [bookId, chapterNum, v.verse, v.dar, v.lsg, v.kjv]
-        );
-      }
-      await db.execAsync('COMMIT');
-    } catch (e: any) {
-      await db.execAsync('ROLLBACK');
-      return { success: false, versesStored: 0, error: e.message };
-    }
-    return { success: true, versesStored: verses.length };
-  } catch (err: any) {
-    return { success: false, versesStored: 0, error: err.message };
-  }
-}
 
 export async function getBookList(db: SQLiteDatabase): Promise<{ id: string; name: string; testament: string; order_num: number; all_chapters: number }[]> {
   return db.getAllAsync('SELECT * FROM books ORDER BY order_num');
@@ -164,37 +69,49 @@ export async function getChapter(
   db: SQLiteDatabase,
   bookId: string,
   chapterNum: number
-): Promise<{ id: number; book_id: string; chapter_number: number; sub: string | null; verses: { verse_number: number; dar: string; lsg: string; kjv: string }[] } | null> {
+): Promise<{ id: number; book_id: string; chapter_number: number; sub: string | null; dar: { v: number; t: string }[]; lsg: { v: number; t: string }[]; kjv: { v: number; t: string }[] } | null> {
   const chapter = await db.getFirstAsync<{ id: number; book_id: string; chapter_number: number; sub: string | null }>(
     'SELECT id, book_id, chapter_number, sub FROM chapters WHERE book_id = ? AND chapter_number = ?',
     [bookId, chapterNum]
   );
   if (!chapter) return null;
 
-  const verses = await db.getAllAsync<{ verse_number: number; dar: string; lsg: string; kjv: string }>(
-    'SELECT verse_number, dar, lsg, kjv FROM verses WHERE book_id = ? AND chapter_number = ? ORDER BY verse_number',
+  const rows = await db.getAllAsync<{ version_id: string; verse_number: number; verse_text: string }>(
+    'SELECT version_id, verse_number, verse_text FROM version_verses WHERE book_id = ? AND chapter_number = ? ORDER BY version_id, verse_number',
     [bookId, chapterNum]
   );
 
-  return { ...chapter, verses };
+  const dar: { v: number; t: string }[] = [];
+  const lsg: { v: number; t: string }[] = [];
+  const kjv: { v: number; t: string }[] = [];
+
+  for (const row of rows) {
+    const v = { v: row.verse_number, t: row.verse_text };
+    if (row.version_id === 'dar') dar.push(v);
+    else if (row.version_id === 'lsg') lsg.push(v);
+    else if (row.version_id === 'kjv') kjv.push(v);
+  }
+
+  return { ...chapter, dar, lsg, kjv };
 }
 
 interface VerseRow {
-  book_id: string; book_name: string; chapter_number: number; verse_number: number; dar: string; lsg: string; kjv: string;
+  book_id: string; book_name: string; chapter_number: number; verse_number: number; verse_text: string;
 }
 
 export async function getVerse(
   db: SQLiteDatabase,
   bookId: string,
   chapter: number,
-  verse: number
+  verse: number,
+  versionId: VersionId = 'dar'
 ): Promise<VerseRow | null> {
   const row = await db.getFirstAsync<VerseRow>(
-    `SELECT v.book_id, b.name AS book_name, v.chapter_number, v.verse_number, v.dar, v.lsg, v.kjv
-     FROM verses v
+    `SELECT v.book_id, b.name AS book_name, v.chapter_number, v.verse_number, v.verse_text
+     FROM version_verses v
      JOIN books b ON v.book_id = b.id
-     WHERE v.book_id = ? AND v.chapter_number = ? AND v.verse_number = ?`,
-    [bookId, chapter, verse]
+     WHERE v.version_id = ? AND v.book_id = ? AND v.chapter_number = ? AND v.verse_number = ?`,
+    [versionId, bookId, chapter, verse]
   );
   return row;
 }
@@ -204,16 +121,24 @@ export async function searchVerses(
   query: string,
   version: VersionId
 ): Promise<{ book_id: string; book_name: string; chapter_number: number; verse_number: number; text: string }[]> {
-  if (!['dar', 'lsg', 'kjv'].includes(version)) {
-    throw new Error('Invalid version');
-  }
   return db.getAllAsync(
-    `SELECT v.book_id, b.name AS book_name, v.chapter_number, v.verse_number, v.${version} AS text
-     FROM verses v
+    `SELECT v.book_id, b.name AS book_name, v.chapter_number, v.verse_number, v.verse_text AS text
+     FROM version_verses v
      JOIN books b ON v.book_id = b.id
-     WHERE v.${version} LIKE ?
+     WHERE v.version_id = ? AND v.verse_text LIKE ?
      ORDER BY v.book_id, v.chapter_number, v.verse_number`,
-    [`%${query}%`]
+    [version, `%${query}%`]
+  );
+}
+
+export async function getBookVerseLayout(
+  db: SQLiteDatabase,
+  bookId: string
+): Promise<{ chapter: number; verseCount: number }[]> {
+  return db.getAllAsync<{ chapter: number; verseCount: number }>(
+    `SELECT chapter_number AS chapter, COUNT(*) AS verseCount
+     FROM version_verses WHERE book_id = ? AND version_id = 'dar' GROUP BY chapter_number ORDER BY chapter_number`,
+    [bookId]
   );
 }
 
@@ -226,42 +151,4 @@ export async function getAvailableChapters(
     [bookId]
   );
   return rows.map((r) => r.chapter_number);
-}
-
-export async function insertChapterWithVerses(
-  db: SQLiteDatabase,
-  bookId: string,
-  chapterNum: number,
-  sub: string | null,
-  darVerses: string[],
-  lsgVerses: string[],
-  kjvVerses: string[]
-): Promise<void> {
-  await db.execAsync('BEGIN TRANSACTION');
-  try {
-    await db.runAsync(
-      'INSERT OR IGNORE INTO chapters (book_id, chapter_number, sub) VALUES (?, ?, ?)',
-      [bookId, chapterNum, sub]
-    );
-
-    const maxLen = Math.max(darVerses.length, lsgVerses.length, kjvVerses.length);
-    for (let i = 0; i < maxLen; i++) {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO verses (book_id, chapter_number, verse_number, dar, lsg, kjv) VALUES (?, ?, ?, ?, ?, ?)',
-        [
-          bookId,
-          chapterNum,
-          i + 1,
-          darVerses[i] ?? null,
-          lsgVerses[i] ?? null,
-          kjvVerses[i] ?? null,
-        ]
-      );
-    }
-
-    await db.execAsync('COMMIT');
-  } catch (e) {
-    await db.execAsync('ROLLBACK');
-    throw e;
-  }
 }

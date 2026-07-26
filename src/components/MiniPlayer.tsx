@@ -2,6 +2,7 @@ import { Pressable, View, Text, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { VersionId, Chapter, VERSIONS } from '../data/bible';
 import { colors as C, space as S } from '../theme';
+import { chapArr } from '../utils';
 
 export default function MiniPlayer({ book, chapter, idx, version, playing, onPress, onToggle, chapterCache }: {
   book: string; chapter: number; idx: number; version: VersionId; playing: boolean; onPress: () => void; onToggle: () => void;
@@ -9,7 +10,8 @@ export default function MiniPlayer({ book, chapter, idx, version, playing, onPre
 }) {
   const chap = chapterCache[`${book}:${chapter}`];
   if (!chap) return null;
-  const vn = chap.verseNumbers[Math.max(0, idx)] ?? Math.max(0, idx) + 1;
+  const arr = chapArr(chap, version);
+  const vn = arr[Math.max(0, idx)]?.v ?? Math.max(0, idx) + 1;
   return (
     <Pressable style={styles.mini} onPress={onPress}>
       <View style={styles.miniCover}><Ionicons name="musical-notes" size={19} color={C.paper} /></View>

@@ -5,7 +5,8 @@ import { colors as C } from '../theme';
 export default function IconBtn({ name, onPress, active }: { name: string; onPress: () => void; active?: boolean }) {
   return (
     <Pressable onPress={onPress}
-      style={({ pressed }) => [styles.iconBtn, active && styles.iconBtnOn, pressed && { transform: [{ scale: 0.9 }] }]}>
+      style={({ pressed }) => [styles.iconBtn, active && styles.iconBtnOn, pressed && { transform: [{ scale: 0.9 }] }]}
+      accessible accessibilityRole="button" accessibilityLabel={name.replace('-outline', '').replace('-', ' ')}>
       <Ionicons name={name as any} size={18} color={active ? C.paper : C.inkSoft} />
     </Pressable>
   );

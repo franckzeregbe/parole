@@ -1,12 +1,26 @@
 // bible-data.ts — Complete Bible structure: 66 books with chapter counts
 // Books are listed canonically with testament classification.
-// Chapters are fetched on demand via bible-db.ts downloadChapterFromApi().
+// Chapters are bundled in the SQLite database.
+
+export type Testament = 'Ancien Testament' | 'Nouveau Testament';
+
+export type BookCategory =
+  | 'Loi'
+  | 'Histoire'
+  | 'Poésie & Sagesse'
+  | 'Prophètes majeurs'
+  | 'Prophètes mineurs'
+  | 'Évangiles'
+  | 'Épîtres pauliniennes'
+  | 'Épîtres générales'
+  | 'Apocalypse';
 
 export interface BookStructure {
   id: string;
   name: string;
   nameEn: string;
-  testament: 'Ancien Testament' | 'Nouveau Testament';
+  testament: Testament;
+  category: BookCategory;
   chapterCount: number;
 }
 
@@ -95,6 +109,54 @@ const CHAPTER_COUNTS: Record<string, number> = {
   '3jo': 1, jud: 1, apo: 22,
 };
 
+// ─── Category per book (traditional biblical grouping) ────────────────────
+
+const BOOK_CATEGORY: Record<string, BookCategory> = {
+  // Ancien Testament — Loi (Pentateuque)
+  gen: 'Loi', ex: 'Loi', lev: 'Loi', num: 'Loi', deu: 'Loi',
+  // Ancien Testament — Histoire
+  jos: 'Histoire', jug: 'Histoire', rut: 'Histoire', '1sa': 'Histoire',
+  '2sa': 'Histoire', '1ro': 'Histoire', '2ro': 'Histoire', '1ch': 'Histoire',
+  '2ch': 'Histoire', ezd: 'Histoire', neh: 'Histoire', est: 'Histoire',
+  // Ancien Testament — Poésie & Sagesse
+  job: 'Poésie & Sagesse', ps: 'Poésie & Sagesse', pro: 'Poésie & Sagesse',
+  ecc: 'Poésie & Sagesse', cant: 'Poésie & Sagesse',
+  // Ancien Testament — Prophètes majeurs
+  esa: 'Prophètes majeurs', jer: 'Prophètes majeurs', la: 'Prophètes majeurs',
+  eze: 'Prophètes majeurs', dan: 'Prophètes majeurs',
+  // Ancien Testament — Prophètes mineurs
+  hos: 'Prophètes mineurs', joe: 'Prophètes mineurs', am: 'Prophètes mineurs',
+  abd: 'Prophètes mineurs', jon: 'Prophètes mineurs', mi: 'Prophètes mineurs',
+  nah: 'Prophètes mineurs', hab: 'Prophètes mineurs', soph: 'Prophètes mineurs',
+  agg: 'Prophètes mineurs', zac: 'Prophètes mineurs', mal: 'Prophètes mineurs',
+  // Nouveau Testament — Évangiles
+  mat: 'Évangiles', mar: 'Évangiles', luc: 'Évangiles', jean: 'Évangiles',
+  // Nouveau Testament — Histoire
+  act: 'Histoire',
+  // Nouveau Testament — Épîtres pauliniennes
+  rom: 'Épîtres pauliniennes', '1co': 'Épîtres pauliniennes', '2co': 'Épîtres pauliniennes',
+  gal: 'Épîtres pauliniennes', eph: 'Épîtres pauliniennes', phi: 'Épîtres pauliniennes',
+  col: 'Épîtres pauliniennes', '1ts': 'Épîtres pauliniennes', '2ts': 'Épîtres pauliniennes',
+  '1ti': 'Épîtres pauliniennes', '2ti': 'Épîtres pauliniennes', tit: 'Épîtres pauliniennes',
+  phm: 'Épîtres pauliniennes',
+  // Nouveau Testament — Épîtres générales
+  heb: 'Épîtres générales', jac: 'Épîtres générales', '1pi': 'Épîtres générales',
+  '2pi': 'Épîtres générales', '1jo': 'Épîtres générales', '2jo': 'Épîtres générales',
+  '3jo': 'Épîtres générales', jud: 'Épîtres générales',
+  // Nouveau Testament — Apocalypse
+  apo: 'Apocalypse',
+};
+
+// Display order of categories within each testament.
+export const CATEGORIES_BY_TESTAMENT: Record<Testament, BookCategory[]> = {
+  'Ancien Testament': [
+    'Loi', 'Histoire', 'Poésie & Sagesse', 'Prophètes majeurs', 'Prophètes mineurs',
+  ],
+  'Nouveau Testament': [
+    'Évangiles', 'Histoire', 'Épîtres pauliniennes', 'Épîtres générales', 'Apocalypse',
+  ],
+};
+
 // ─── Canonical order ──────────────────────────────────────────────────────
 
 export const CANONICAL_ORDER: string[] = Object.keys(BOOK_NAMES);
@@ -113,7 +175,8 @@ const ALL_BOOKS: BookStructure[] = CANONICAL_ORDER.map((id) => ({
   id,
   name: BOOK_NAMES[id].name,
   nameEn: BOOK_NAMES[id].nameEn,
-  testament: (OT_SET.has(id) ? 'Ancien Testament' : 'Nouveau Testament') as 'Ancien Testament' | 'Nouveau Testament',
+  testament: (OT_SET.has(id) ? 'Ancien Testament' : 'Nouveau Testament') as Testament,
+  category: BOOK_CATEGORY[id],
   chapterCount: CHAPTER_COUNTS[id],
 }));
 
@@ -127,4 +190,39 @@ export function getAllBooks(): BookStructure[] {
 
 export function getBookById(id: string): BookStructure | undefined {
   return BOOK_BY_ID_MAP.get(id);
+}
+
+export interface BookCategoryGroup {
+  category: BookCategory;
+  books: BookStructure[];
+}
+
+/**
+ * Returns the books of a testament grouped by category, in canonical
+ * category order. Used to render a well-organised, browsable book list.
+ */
+export function getBookGroupsByTestament(testament: Testament): BookCategoryGroup[] {
+  return CATEGORIES_BY_TESTAMENT[testament]
+    .map((category) => ({
+      category,
+      books: ALL_BOOKS.filter((b) => b.testament === testament && b.category === category),
+    }))
+    .filter((g) => g.books.length > 0);
+}
+
+/** Case- and accent-insensitive search across French and English book names. */
+export function searchBooks(query: string): BookStructure[] {
+  const q = normalizeText(query);
+  if (q.length === 0) return [];
+  return ALL_BOOKS.filter((b) => {
+    const hay = `${normalizeText(b.name)} ${normalizeText(b.nameEn)} ${b.id}`;
+    return hay.includes(q);
+  });
+}
+
+function normalizeText(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
 }

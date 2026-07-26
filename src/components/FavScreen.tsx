@@ -24,8 +24,8 @@ export default function FavScreen({ fav, version, onJump, db }: {
         });
         const updated = await Promise.allSettled(
           items.map(async (item) => {
-            const row = await getVerse(db, item.book, item.chapter, item.verse);
-            return { ...item, text: row ? row[version] : '' };
+            const row = await getVerse(db, item.book, item.chapter, item.verse, version);
+            return { ...item, text: row ? row.verse_text : '' };
           })
         );
         setFavItems(updated.filter((r) => r.status === 'fulfilled').map((r: any) => r.value));
@@ -40,7 +40,8 @@ export default function FavScreen({ fav, version, onJump, db }: {
       ) : (
         favItems.map((item) => {
           return (
-            <Pressable key={`${item.book}:${item.chapter}:${item.verse}`} style={styles.result} onPress={() => onJump(item.book, item.chapter, item.verse)}>
+            <Pressable key={`${item.book}:${item.chapter}:${item.verse}`} style={styles.result} onPress={() => onJump(item.book, item.chapter, item.verse)}
+              accessible accessibilityRole="button" accessibilityLabel={`${item.bookName} ${item.chapter}:${item.verse}`}>
               <View style={styles.resultRef}>
                 <Text style={styles.resultR}>{item.bookName} {item.chapter}:{item.verse}</Text>
                 <Text style={styles.resultV}>{VERSIONS[version]}</Text>

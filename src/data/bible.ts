@@ -22,8 +22,9 @@ export interface Chapter {
   name: string;
   chapter: number;
   sub: string;
-  verseNumbers: number[];
-  text: Record<VersionId, string[]>;
+  dar: { v: number; t: string }[];
+  lsg: { v: number; t: string }[];
+  kjv: { v: number; t: string }[];
 }
 
 export interface BookMeta {

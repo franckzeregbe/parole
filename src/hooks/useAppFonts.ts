@@ -1,11 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Font from 'expo-font';
+import { FONT_URLS } from '../config';
 
-const FONT_MAP = {
-  Fraunces_600SemiBold: 'https://cdn.jsdelivr.net/npm/@fontsource/fraunces/files/fraunces-latin-600-normal.woff2',
-  Literata_400Regular: 'https://cdn.jsdelivr.net/npm/@fontsource/literata/files/literata-latin-400-normal.woff2',
-  Literata_400Regular_Italic: 'https://cdn.jsdelivr.net/npm/@fontsource/literata/files/literata-latin-400-italic.woff2',
-};
+const FONT_MAP = FONT_URLS;
 
 export function useAppFonts(): { fontsLoaded: boolean; fontError: boolean } {
   const [fontsLoaded, setFontsLoaded] = useState(false);

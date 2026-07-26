@@ -10,7 +10,8 @@ export default function VersionSwitch({ value, onChange }: { value: VersionId; o
       {items.map((v) => {
         const on = v === value;
         return (
-          <Pressable key={v} style={[styles.verBtn, on && styles.verBtnOn]} onPress={() => onChange(v)}>
+          <Pressable key={v} style={[styles.verBtn, on && styles.verBtnOn]} onPress={() => onChange(v)}
+            accessible accessibilityRole="button" accessibilityLabel={VERSIONS[v]} accessibilityState={{ selected: on }}>
             <Text style={[styles.verTxt, on && styles.verTxtOn]}>{VERSIONS[v]}</Text>
             <Text style={[styles.verSub, on && styles.verSubOn]}>{sub[v]}</Text>
           </Pressable>

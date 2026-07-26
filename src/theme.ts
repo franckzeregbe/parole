@@ -23,6 +23,31 @@ export const colors = {
   nowBottom: '#2E2822',
 };
 
+export const darkColors = {
+  paper: '#1A1816',
+  paper2: '#211F1C',
+  paper3: '#2A2724',
+  ink: '#E8E0D5',
+  inkSoft: '#B5ADA2',
+  inkFaint: '#7A7368',
+  line: '#3D3832',
+  lineStrong: '#555048',
+  accent: '#C46A37',
+  accentDeep: '#8F4428',
+  accentTint: '#3A1F14',
+  gold: '#E8B85E',
+  surface: '#2A2520',
+  hlYellow: '#8B7530',
+  hlGreen: '#3A6B3D',
+  hlBlue: '#3A5A8B',
+  hlPink: '#8B3A4F',
+  hlPeach: '#8B5A3A',
+  hlReading: '#8B4A3A',
+  nowTop: '#A85435',
+  nowMid: '#6B3A25',
+  nowBottom: '#3D2818',
+};
+
 export const HL_COLORS: Record<string, string> = {
   yellow: colors.hlYellow,
   green: colors.hlGreen,
