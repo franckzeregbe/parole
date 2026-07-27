@@ -23,7 +23,7 @@ import {
   separateLegacyKeys, resolveLegacyRecords,
 } from './src/data/legacyMigration';
 import { ThemeProvider, useTheme } from './src/components/ThemeContext';
-import { formatDate, vkey, chapArr } from './src/utils';
+import { formatDate, vkey, chapArr, saveReadingPosition, getReadingPositions, type ReadingPosition } from './src/utils';
 
 import ErrorBoundary from './src/components/ErrorBoundary';
 import IconBtn from './src/components/IconBtn';
@@ -66,7 +66,25 @@ function AppInner() {
   const [playChapter, setPlayChapter] = useState(1);
   const [chapterData, setChapterData] = useState<Chapter | null>(null);
   const [dbReady, setDbReady] = useState<SQLiteDatabase | null>(null);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const retryDb = useCallback(async () => {
+    setDbError(null);
+    try {
+      const db = await loadBibleDb();
+      dbRef.current = db;
+      setDbReady(db);
+      const v = getVerseOfTheDay();
+      const dar = (await getVerse(db, v.bookId, v.chapter, v.verse, 'dar'))?.verse_text ?? '';
+      const lsg = (await getVerse(db, v.bookId, v.chapter, v.verse, 'lsg'))?.verse_text ?? '';
+      const kjv = (await getVerse(db, v.bookId, v.chapter, v.verse, 'kjv'))?.verse_text ?? '';
+      setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
+      const positions = await getReadingPositions(db);
+      setReadingPositions(positions);
+      await migrateLegacyKeys(db);
+    } catch (e) { setDbError(e instanceof Error ? e.message : 'Erreur inconnue'); }
+  }, []);
   const [votd, setVotd] = useState<{ ref: string; bookId: string; chapter: number; verse: number; text: Record<VersionId, string> } | null>(null);
+  const [readingPositions, setReadingPositions] = useState<Record<string, ReadingPosition>>({});
   const tabAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     tabAnim.setValue(0);
@@ -118,8 +136,10 @@ function AppInner() {
         const lsg = (await getVerse(db, v.bookId, v.chapter, v.verse, 'lsg'))?.verse_text ?? '';
         const kjv = (await getVerse(db, v.bookId, v.chapter, v.verse, 'kjv'))?.verse_text ?? '';
         setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
+        const positions = await getReadingPositions(db);
+        setReadingPositions(positions);
         await migrateLegacyKeys(db);
-      } catch (e) { console.warn('DB init failed', e); }
+      } catch (e) { setDbError(e instanceof Error ? e.message : 'Erreur inconnue'); }
     })();
   }, []);
 
@@ -148,6 +168,19 @@ function AppInner() {
   }, [book, chapter]);
 
   useEffect(() => { setChapter(1); }, [book]);
+
+  // Save reading position whenever the user opens a book/chapter.
+  useEffect(() => {
+    const db = dbRef.current;
+    if (!db) return;
+    (async () => {
+      try {
+        await saveReadingPosition(db, { bookId: book, chapter, verse: 1, timestamp: Date.now() });
+        const positions = await getReadingPositions(db);
+        setReadingPositions(positions);
+      } catch {}
+    })();
+  }, [book, chapter]);
 
   const readSize = T.base + 4 + sizeStep * 1.4;
 
@@ -375,10 +408,15 @@ function AppInner() {
     const k = vkey(book, chapter, cur.v);
     setFav((prev) => { const n = { ...prev }; if (n[k]) delete n[k]; else n[k] = true; return n; });
   };
-  const navigateToVerse = (bid: string, ch = 1, _vs?: number) => {
+  const navigateToVerse = async (bid: string, ch = 1, vs?: number) => {
     setBook(bid);
     setChapter(ch);
     setTab('read');
+    if (dbRef.current) {
+      await saveReadingPosition(dbRef.current, { bookId: bid, chapter: ch, verse: vs ?? 1, timestamp: Date.now() });
+      const positions = await getReadingPositions(dbRef.current);
+      setReadingPositions(positions);
+    }
   };
 
   const { colors: C, space: S } = useTheme();
@@ -409,6 +447,21 @@ function AppInner() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.paper }}>
         <Text style={{ fontSize: 40, fontWeight: '700', color: C.accent, letterSpacing: 1 }}>PAROLE</Text>
         <Text style={{ fontSize: 14, color: C.inkFaint, marginTop: 10 }}>Préparation de la Bible…</Text>
+      </View>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.paper, padding: S.s5 }}>
+        <Text style={{ fontSize: 50, marginBottom: S.s4 }}>⚠️</Text>
+        <Text style={{ fontSize: 18, fontWeight: '600', color: C.ink, marginBottom: S.s3 }}>Erreur de chargement</Text>
+        <Text style={{ fontSize: 14, color: C.inkSoft, textAlign: 'center', marginBottom: S.s5 }}>{dbError}</Text>
+        <Pressable style={{ backgroundColor: C.accent, borderRadius: 12, paddingHorizontal: 24, paddingVertical: 12 }}
+          onPress={retryDb}
+          accessible accessibilityRole="button" accessibilityLabel="Réessayer">
+          <Text style={{ color: C.surface, fontWeight: '600' }}>Réessayer</Text>
+        </Pressable>
       </View>
     );
   }
@@ -447,6 +500,7 @@ function AppInner() {
           {tab === 'home' && (
             <HomeScreen version={version} votd={votd}
               onOpenBook={(id: string, ch?: number) => { setBook(id); if (ch) setChapter(ch); setTab('read'); }}
+              onOpenChapter={navigateToVerse}
               books={getAllBooks().map((b) => ({ id: b.id, name: b.name, chapterCount: b.chapterCount, testament: b.testament, category: b.category }))}
               onPlayVotd={() => {
                 if (votd && chapterData) {
@@ -455,7 +509,9 @@ function AppInner() {
                   setBook(votd.bookId); setChapter(votd.chapter);
                   startPlayback(Math.max(0, idx), votd.bookId, votd.chapter);
                 }
-              }} />
+              }}
+              db={dbReady}
+              readingPositions={readingPositions} />
           )}
           {tab === 'read' && (
             <ReaderScreen

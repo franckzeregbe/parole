@@ -1,3 +1,6 @@
+import type { VersionId, Chapter } from './data/bible';
+import type { SQLiteDatabase } from 'expo-sqlite';
+
 export function formatDate(): string {
   const d = new Date();
   const days = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
@@ -7,7 +10,61 @@ export function formatDate(): string {
 
 export const vkey = (b: string, c: number, v: number) => `${b}:${c}:${v}`;
 
-import type { VersionId, Chapter } from './data/bible';
+export interface ReadingPosition {
+  bookId: string;
+  chapter: number;
+  verse: number;
+  timestamp: number;
+}
+
+const POSITION_KEY = 'parole:readingPositions';
+
+export async function saveReadingPosition(
+  db: SQLiteDatabase,
+  position: ReadingPosition,
+): Promise<void> {
+  const all = await getReadingPositions(db);
+  all[position.bookId] = position;
+  await db.runAsync(
+    'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+    [POSITION_KEY, JSON.stringify(all)],
+  );
+}
+
+export async function getReadingPositions(
+  db: SQLiteDatabase,
+): Promise<Record<string, ReadingPosition>> {
+  try {
+    const row = await db.getFirstAsync<{ value: string }>(
+      'SELECT value FROM meta WHERE key = ?',
+      [POSITION_KEY],
+    );
+    if (!row?.value) return {};
+    return JSON.parse(row.value);
+  } catch {
+    return {};
+  }
+}
+
+export async function clearReadingPosition(
+  db: SQLiteDatabase,
+  bookId: string,
+): Promise<void> {
+  const all = await getReadingPositions(db);
+  delete all[bookId];
+  await db.runAsync(
+    'INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
+    [POSITION_KEY, JSON.stringify(all)],
+  );
+}
+
+export function formatGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'Bonjour';
+  if (h < 18) return 'Bon après-midi';
+  return 'Bonsoir';
+}
+
 export function chapArr(chap: Chapter, v: VersionId): { v: number; t: string }[] {
   return v === 'dar' ? chap.dar : v === 'lsg' ? chap.lsg : chap.kjv;
 }

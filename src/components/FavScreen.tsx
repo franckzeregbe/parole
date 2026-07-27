@@ -28,7 +28,7 @@ export default function FavScreen({ fav, version, onJump, db }: {
             return { ...item, text: row ? row.verse_text : '' };
           })
         );
-        setFavItems(updated.filter((r) => r.status === 'fulfilled').map((r: any) => r.value));
+        setFavItems(updated.filter((r): r is PromiseFulfilledResult<{ book: string; chapter: number; verse: number; bookName: string; text: string }> => r.status === 'fulfilled').map((r) => r.value as { book: string; chapter: number; verse: number; bookName: string; text: string }));
       } catch { setFavItems([]); }
     })();
   }, [fav, version, db]);

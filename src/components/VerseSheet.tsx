@@ -24,9 +24,15 @@ export default function VerseSheet({ book, chapter, idx, version, chapterData, h
     showToast('Verset copié');
   }, [quote, showToast]);
 
-  if (!chap) return null;
+   if (!chap) return null;
 
-  const vn = curArr[idx]?.v ?? idx + 1;
+   const vn = curArr[idx]?.v ?? idx + 1;
+
+   const copyRef = useCallback(async () => {
+     const ref = `${chap.name} ${chap.chapter}:${vn}`;
+     await Clipboard.setStringAsync(ref);
+     showToast('Référence copiée');
+   }, [chap, vn, showToast]);
 
   return (
     <Sheet onClose={onClose}>
@@ -57,6 +63,7 @@ export default function VerseSheet({ book, chapter, idx, version, chapterData, h
             ))}
           </View>
           <View style={styles.sheetActions}>
+            <SheetAct icon="share-outline" label="Partager" onPress={copyRef} />
             <SheetAct icon="play" label="Écouter" onPress={onListen} />
             <SheetAct icon={isFav ? 'bookmark' : 'bookmark-outline'} label={isFav ? 'Retiré' : 'Favori'} on={isFav} onPress={onToggleFav} />
             <SheetAct icon="copy-outline" label="Copier" onPress={copyVerse} />

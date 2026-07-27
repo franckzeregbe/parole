@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, Pressable, TextInput, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { VersionId } from '../data/bible';
 import { VerseOfTheDay } from '../data/votd';
 import { getBookGroupsByTestament, searchBooks, getBookById } from '../data/bible-data';
 import { colors as C, space as S } from '../theme';
-import { formatDate, parseReference } from '../utils';
+import { formatDate, parseReference, formatGreeting, type ReadingPosition } from '../utils';
 
 type VotdData = VerseOfTheDay & { text: Record<VersionId, string> };
 
@@ -62,14 +63,33 @@ function VotdCard({ votd, version, onPlay }: { votd: VotdData | null; version: V
   );
 }
 
-export default function HomeScreen({ version, votd, onOpenBook, books, onPlayVotd }: {
+function ContinueReadingCard({ position, onOpen }: { position: ReadingPosition; onOpen: (bookId: string, chapter: number, verse?: number) => void }) {
+  const bookName = getBookById(position.bookId)?.name ?? position.bookId;
+  return (
+    <Pressable style={styles.continueCard} onPress={() => onOpen(position.bookId, position.chapter, position.verse)}
+      accessible accessibilityRole="button" accessibilityLabel={`Continuer la lecture : ${bookName} ${position.chapter}:${position.verse}`}>
+      <Ionicons name="book-outline" size={20} color={C.accent} />
+      <View style={styles.continueInfo}>
+        <Text style={styles.continueTitle}>Reprendre la lecture</Text>
+        <Text style={styles.continueRef}>{bookName} {position.chapter}:{position.verse}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={18} color={C.inkFaint} />
+    </Pressable>
+  );
+}
+
+export default function HomeScreen({ version, votd, onOpenBook, books, onPlayVotd, onOpenChapter, db, readingPositions }: {
   version: VersionId;
   votd: VotdData | null;
   onOpenBook: (id: string, chapter?: number) => void;
   books: BookItem[];
   onPlayVotd: () => void;
+  onOpenChapter: (bookId: string, chapter: number, verse?: number) => void;
+  db: SQLiteDatabase | null;
+  readingPositions: Record<string, ReadingPosition>;
 }) {
   const [query, setQuery] = useState('');
+  const greeting = formatGreeting();
   const dateStr = formatDate();
 
   const results = query.trim() ? searchBooks(query) : [];
@@ -78,12 +98,23 @@ export default function HomeScreen({ version, votd, onOpenBook, books, onPlayVot
 
   return (
     <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-      <Text style={styles.greeting}>SALUT 👋</Text>
+       <Text style={styles.greeting}>{greeting} 👋</Text>
       <Text style={styles.homeDate}>{dateStr}</Text>
 
-      <VotdCard votd={votd} version={version} onPlay={onPlayVotd} />
+       <VotdCard votd={votd} version={version} onPlay={onPlayVotd} />
 
-      {refMatch && (
+       {Object.keys(readingPositions).length > 0 && (
+         <View style={{ marginBottom: S.s4 }}>
+           {Object.values(readingPositions)
+             .sort((a, b) => b.timestamp - a.timestamp)
+             .slice(0, 1)
+             .map((pos) => (
+               <ContinueReadingCard key={pos.bookId} position={pos} onOpen={onOpenChapter} />
+             ))}
+         </View>
+       )}
+
+       {refMatch && (
         <Pressable style={styles.refBtn} onPress={() => { onOpenBook(refMatch.bookId, refMatch.chapter); }}
           accessible accessibilityRole="button" accessibilityLabel={`Aller à ${getBookById(refMatch.bookId)?.name ?? refMatch.bookId} ${refMatch.chapter}:${refMatch.verse}`}>
           <Ionicons name="compass" size={18} color={C.surface} />
@@ -154,8 +185,13 @@ const styles = StyleSheet.create({
   votdLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1, color: C.inkFaint, marginBottom: 6 },
   votdText: { fontSize: 16, fontWeight: '500', color: C.ink, lineHeight: 22, fontStyle: 'italic', marginBottom: 4 },
   votdRef: { fontSize: 12, fontWeight: '600', color: C.accentDeep, marginBottom: S.s3 },
-  playBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-  playBtnText: { fontSize: 12, fontWeight: '700', color: C.surface, marginLeft: 4 },
+   playBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: C.accent, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+   playBtnText: { fontSize: 12, fontWeight: '700', color: C.surface, marginLeft: 4 },
+
+   continueCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.surface, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingHorizontal: S.s4, paddingVertical: 12, marginBottom: S.s4 },
+   continueInfo: { flex: 1 },
+   continueTitle: { fontSize: 14, fontWeight: '600', color: C.ink },
+   continueRef: { fontSize: 12, color: C.inkFaint, marginTop: 2 },
 
   refBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.accent, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, marginBottom: S.s4 },
   refBtnText: { fontSize: 14, fontWeight: '600', color: C.surface },
