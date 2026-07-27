@@ -59,21 +59,19 @@ export async function loadBibleDb(): Promise<SQLiteDatabase> {
   const dbDir = `${FileSystem.documentDirectory}SQLite/`;
   const dbPath = `${dbDir}bible.db`;
 
-  const dirInfo = await FileSystem.getInfoAsync(dbDir);
-  if (!dirInfo.exists) {
-    await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
-  }
+  await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
 
   const dbInfo = await FileSystem.getInfoAsync(dbPath);
-  if (!dbInfo.exists) {
-    const asset = Asset.fromModule(require('../../assets/bible.db'));
-    await asset.downloadAsync();
-    await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
+  if (dbInfo.exists) {
+    await FileSystem.deleteAsync(dbPath, { idempotent: true });
   }
+
+  const asset = Asset.fromModule(require('../../assets/bible.db'));
+  await asset.downloadAsync();
+  await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
 
   const db = await SQLite.openDatabaseAsync(dbPath);
   await initBibleDb(db);
-  await seedDatabase(db);
   return db;
 }
 
