@@ -1,4 +1,6 @@
 import * as SQLite from 'expo-sqlite';
+import * as FileSystem from 'expo-file-system';
+import { Asset } from 'expo-asset';
 import { getAllBooks, getBookById } from './bible-data';
 import type { VersionId } from './bible';
 import { seedDatabase } from './bible-seed';
@@ -54,7 +56,22 @@ export async function initBibleDb(db: SQLiteDatabase): Promise<void> {
 }
 
 export async function loadBibleDb(): Promise<SQLiteDatabase> {
-  const db = await SQLite.openDatabaseAsync('bible.db');
+  const dbDir = `${FileSystem.documentDirectory}SQLite/`;
+  const dbPath = `${dbDir}bible.db`;
+
+  const dirInfo = await FileSystem.getInfoAsync(dbDir);
+  if (!dirInfo.exists) {
+    await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
+  }
+
+  const dbInfo = await FileSystem.getInfoAsync(dbPath);
+  if (!dbInfo.exists) {
+    const asset = Asset.fromModule(require('../../assets/bible.db'));
+    await asset.downloadAsync();
+    await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
+  }
+
+  const db = await SQLite.openDatabaseAsync(dbPath);
   await initBibleDb(db);
   await seedDatabase(db);
   return db;
