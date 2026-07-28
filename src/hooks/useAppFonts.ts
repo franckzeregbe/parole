@@ -4,6 +4,13 @@ import { FONT_URLS } from '../config';
 
 const FONT_MAP = FONT_URLS;
 
+/**
+ * Charge les polices de manière non-bloquante. Au premier lancement les fonts
+ * distantes peuvent mettre un peu de temps ; on utilise les polices système
+ * en fallback immédiatement (pas de splash supplémentaire).
+ *
+ * Le timeout de sécurité est réduit à 1.5s pour ne pas pénaliser le cold start.
+ */
 export function useAppFonts(): { fontsLoaded: boolean; fontError: boolean } {
   const [fontsLoaded, setFontsLoaded] = useState(false);
   const [fontError, setFontError] = useState(false);
@@ -12,12 +19,13 @@ export function useAppFonts(): { fontsLoaded: boolean; fontError: boolean } {
 
   useEffect(() => {
     mountedRef.current = true;
+    // Timeout de sécurité très court — on préfère les fonts système à un démarrage lent.
     timeoutRef.current = setTimeout(() => {
       if (mountedRef.current) {
         setFontsLoaded(true);
         setFontError(true);
       }
-    }, 4000);
+    }, 1500);
 
     async function load() {
       try {
@@ -37,9 +45,7 @@ export function useAppFonts(): { fontsLoaded: boolean; fontError: boolean } {
 
     return () => {
       mountedRef.current = false;
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 

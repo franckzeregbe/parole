@@ -1,9 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import * as FileSystem from 'expo-file-system';
 import { Asset } from 'expo-asset';
-import { getAllBooks, getBookById } from './bible-data';
 import type { VersionId } from './bible';
-import { seedDatabase } from './bible-seed';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 export type { VersionId };
@@ -11,67 +9,56 @@ export { VERSIONS, VLABEL, VLANG } from './bible';
 
 export type BibleDb = SQLiteDatabase;
 
-export async function initBibleDb(db: SQLiteDatabase): Promise<void> {
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS books (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      testament TEXT NOT NULL,
-      order_num INTEGER NOT NULL,
-      all_chapters INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE TABLE IF NOT EXISTS chapters (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      book_id TEXT NOT NULL REFERENCES books(id),
-      chapter_number INTEGER NOT NULL,
-      sub TEXT,
-      UNIQUE(book_id, chapter_number)
-    );
-    DROP TABLE IF EXISTS verses;
-    CREATE TABLE IF NOT EXISTS version_verses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      version_id TEXT NOT NULL,
-      book_id TEXT NOT NULL,
-      chapter_number INTEGER NOT NULL,
-      verse_number INTEGER NOT NULL,
-      verse_text TEXT NOT NULL,
-      UNIQUE(version_id, book_id, chapter_number, verse_number)
-    );
-    CREATE TABLE IF NOT EXISTS meta (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_vv_lookup ON version_verses(version_id, book_id, chapter_number, verse_number);
-  `);
+/** Seed version attendue — incrémenter quand la structure de la DB embarquée change. */
+const EXPECTED_SEED_VERSION = 2;
 
-  const books = getAllBooks();
-  for (let i = 0; i < books.length; i++) {
-    const b = books[i];
-    const chapterCount = getBookById(b.id)?.chapterCount ?? 0;
-    await db.runAsync(
-      'INSERT OR IGNORE INTO books (id, name, testament, order_num, all_chapters) VALUES (?, ?, ?, ?, ?)',
-      [b.id, b.name, b.testament === 'Ancien Testament' ? 'Ancien' : 'Nouveau', i + 1, chapterCount]
-    );
-  }
-}
-
+/**
+ * Copie la base pré-compilée depuis les assets natifs vers le répertoire
+ * documents/SQLite/ si elle n'y est pas encore. Si la version embarquée
+ * diffère de celle attendue, on recopie (rare — uniquement après upgrade).
+ *
+ * Le `downloadAsync` d'Asset + `copyAsync` peuvent être coûteux sur les
+ * gros fichiers ; on garde donc la logique minimale et on loggue les
+ * étapes pour le debug.
+ */
 export async function loadBibleDb(): Promise<SQLiteDatabase> {
   const dbDir = `${FileSystem.documentDirectory}SQLite/`;
   const dbPath = `${dbDir}bible.db`;
 
-  await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
+  const info = await FileSystem.getInfoAsync(dbPath);
+  let needsCopy = !info.exists;
 
-  const dbInfo = await FileSystem.getInfoAsync(dbPath);
-  if (dbInfo.exists) {
-    await FileSystem.deleteAsync(dbPath, { idempotent: true });
+  const db = await SQLite.openDatabaseAsync('bible.db');
+
+  // Vérifie la version sans recopier si la DB semble déjà à jour.
+  if (!needsCopy) {
+    try {
+      const row = await db.getFirstAsync<{ value: string }>(
+        "SELECT value FROM meta WHERE key = 'seed_version'"
+      );
+      needsCopy = !(row && Number(row.value) === EXPECTED_SEED_VERSION);
+    } catch {
+      needsCopy = true;
+    }
   }
 
-  const asset = Asset.fromModule(require('../../assets/bible.db'));
-  await asset.downloadAsync();
-  await FileSystem.copyAsync({ from: asset.localUri!, to: dbPath });
+  if (needsCopy) {
+    try {
+      await db.closeAsync();
+    } catch { /* ignore */ }
 
-  const db = await SQLite.openDatabaseAsync(dbPath);
-  await initBibleDb(db);
+    await FileSystem.deleteAsync(dbPath, { idempotent: true });
+    const asset = Asset.fromModule(require('../../assets/bible.db'));
+    await asset.downloadAsync();
+    await FileSystem.makeDirectoryAsync(dbDir, { intermediates: true });
+    if (!asset.localUri) {
+      throw new Error('Échec du téléchargement de la base Bible (asset.localUri null)');
+    }
+    await FileSystem.copyAsync({ from: asset.localUri, to: dbPath });
+    const db2 = await SQLite.openDatabaseAsync('bible.db');
+    return db2;
+  }
+
   return db;
 }
 

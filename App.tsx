@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
+import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   VLANG, VersionId, Chapter,
@@ -67,24 +68,43 @@ function AppInner() {
   const [chapterData, setChapterData] = useState<Chapter | null>(null);
   const [dbReady, setDbReady] = useState<SQLiteDatabase | null>(null);
   const [dbError, setDbError] = useState<string | null>(null);
+  const [votd, setVotd] = useState<{ ref: string; bookId: string; chapter: number; verse: number; text: Record<VersionId, string> } | null>(null);
+  const [readingPositions, setReadingPositions] = useState<Record<string, ReadingPosition>>({});
+
+  useEffect(() => {
+    SplashScreen.preventAutoHideAsync().catch(() => {});
+  }, []);
+
   const retryDb = useCallback(async () => {
     setDbError(null);
     try {
       const db = await loadBibleDb();
       dbRef.current = db;
       setDbReady(db);
-      const v = getVerseOfTheDay();
-      const dar = (await getVerse(db, v.bookId, v.chapter, v.verse, 'dar'))?.verse_text ?? '';
-      const lsg = (await getVerse(db, v.bookId, v.chapter, v.verse, 'lsg'))?.verse_text ?? '';
-      const kjv = (await getVerse(db, v.bookId, v.chapter, v.verse, 'kjv'))?.verse_text ?? '';
-      setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
-      const positions = await getReadingPositions(db);
-      setReadingPositions(positions);
-      await migrateLegacyKeys(db);
+      // Cache le splash natif dès que la base est prête — l'UI apparaît immédiatement.
+      SplashScreen.hideAsync().catch(() => {});
+
+      // Chargement secondaire (VOTD, positions, migration) en arrière-plan
+      // pour ne pas bloquer le premier affichage.
+      (async () => {
+        try {
+          const v = getVerseOfTheDay();
+          const [dar, lsg, kjv] = await Promise.all([
+            getVerse(db, v.bookId, v.chapter, v.verse, 'dar').then((r) => r?.verse_text ?? ''),
+            getVerse(db, v.bookId, v.chapter, v.verse, 'lsg').then((r) => r?.verse_text ?? ''),
+            getVerse(db, v.bookId, v.chapter, v.verse, 'kjv').then((r) => r?.verse_text ?? ''),
+          ]);
+          setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
+          const positions = await getReadingPositions(db);
+          setReadingPositions(positions);
+          await migrateLegacyKeys(db);
+        } catch (bgErr) { console.warn('Background init failed', bgErr); }
+      })();
     } catch (e) { setDbError(e instanceof Error ? e.message : 'Erreur inconnue'); }
   }, []);
-  const [votd, setVotd] = useState<{ ref: string; bookId: string; chapter: number; verse: number; text: Record<VersionId, string> } | null>(null);
-  const [readingPositions, setReadingPositions] = useState<Record<string, ReadingPosition>>({});
+
+  useEffect(() => { retryDb(); }, [retryDb]);
+
   const tabAnim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     tabAnim.setValue(0);
@@ -123,24 +143,6 @@ function AppInner() {
       setHl(newHl);
       setFav(newFav);
     } catch (e) { console.warn('Legacy migration failed', e); }
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const db = await loadBibleDb();
-        dbRef.current = db;
-        setDbReady(db);
-        const v = getVerseOfTheDay();
-        const dar = (await getVerse(db, v.bookId, v.chapter, v.verse, 'dar'))?.verse_text ?? '';
-        const lsg = (await getVerse(db, v.bookId, v.chapter, v.verse, 'lsg'))?.verse_text ?? '';
-        const kjv = (await getVerse(db, v.bookId, v.chapter, v.verse, 'kjv'))?.verse_text ?? '';
-        setVotd({ ref: v.ref, bookId: v.bookId, chapter: v.chapter, verse: v.verse, text: { dar, lsg, kjv } });
-        const positions = await getReadingPositions(db);
-        setReadingPositions(positions);
-        await migrateLegacyKeys(db);
-      } catch (e) { setDbError(e instanceof Error ? e.message : 'Erreur inconnue'); }
-    })();
   }, []);
 
   useEffect(() => {
@@ -442,14 +444,6 @@ function AppInner() {
   // used until then), so only the database gates the first paint. This keeps
   // app launch instant instead of waiting on a remote font download.
   useAppFonts();
-  if (!dbReady) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.paper }}>
-        <Text style={{ fontSize: 40, fontWeight: '700', color: C.accent, letterSpacing: 1 }}>PAROLE</Text>
-        <Text style={{ fontSize: 14, color: C.inkFaint, marginTop: 10 }}>Préparation de la Bible…</Text>
-      </View>
-    );
-  }
 
   if (dbError) {
     return (

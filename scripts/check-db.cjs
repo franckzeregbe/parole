@@ -1,0 +1,17 @@
+const Database = require('better-sqlite3');
+const d = new Database('assets/bible.db');
+const tables = d.prepare("SELECT name,sql FROM sqlite_master WHERE type='table'").all();
+tables.forEach(t => console.log(t.name + ':', t.sql));
+console.log();
+const idx = d.prepare("SELECT name,sql FROM sqlite_master WHERE type='index'").all();
+idx.forEach(t => console.log('idx:', t.sql));
+console.log();
+const meta = d.prepare('SELECT * FROM meta').all();
+console.log('meta:', JSON.stringify(meta));
+const vcount = d.prepare('SELECT COUNT(*) as c FROM version_verses').get();
+console.log('verses:', vcount.c);
+const bcount = d.prepare('SELECT COUNT(*) as c FROM books').get();
+console.log('books:', bcount.c);
+const ccount = d.prepare('SELECT COUNT(*) as c FROM chapters').get();
+console.log('chapters:', ccount.c);
+d.close();
