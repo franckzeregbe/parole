@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, ScrollView, Pressable, TextInput, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, Pressable, TextInput, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { getBookGroupsByTestament, searchBooks, getBookById } from '../data/bible-data';
 import { colors as C, space as S } from '../theme';
@@ -12,8 +12,13 @@ export default function BookPicker({ onClose, onPickChapter }: {
 }) {
   const [sel, setSel] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [expandedTestament, setExpandedTestament] = useState<string | null>('Ancien Testament');
 
   const results = query.trim() ? searchBooks(query) : [];
+
+  const toggleTestament = (test: string) => {
+    setExpandedTestament((prev) => (prev === test ? null : test));
+  };
 
   return (
     <Sheet onClose={onClose} title={sel ? undefined : "Livres & chapitres"}>
@@ -52,23 +57,32 @@ export default function BookPicker({ onClose, onPickChapter }: {
                 ))
               )
             ) : (
-              TESTAMENTS.map((test) => (
-                <View key={test}>
-                  <Text style={styles.pickCap}>{test.toUpperCase()}</Text>
-                  {getBookGroupsByTestament(test).map((group) => (
-                    <View key={group.category}>
-                      <Text style={styles.catCap}>{group.category}</Text>
-                      {group.books.map((bk) => (
-                  <Pressable key={bk.id} style={styles.bookRow} onPress={() => setSel(bk.id)}
-                    accessible accessibilityRole="button" accessibilityLabel={bk.name}>
-                          <Text style={styles.bookName}>{bk.name}</Text>
-                          <Text style={styles.chip}>Ch. {bk.chapterCount}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  ))}
-                </View>
-              ))
+              TESTAMENTS.map((test) => {
+                const isExpanded = expandedTestament === test;
+                const groups = getBookGroupsByTestament(test);
+                return (
+                  <View key={test} style={{ marginBottom: S.s1 }}>
+                    <Pressable style={styles.testHeader} onPress={() => toggleTestament(test)}
+                      accessible accessibilityRole="button" accessibilityState={{ expanded: isExpanded }}
+                      accessibilityLabel={`${test} — ${isExpanded ? 'réduit' : 'déployé'}`}>
+                      <Text style={styles.testTitle}>{test.toUpperCase()}</Text>
+                      <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={C.inkFaint} />
+                    </Pressable>
+                    {isExpanded && groups.map((group) => (
+                      <View key={group.category}>
+                        <Text style={styles.catCap}>{group.category}</Text>
+                        {group.books.map((bk) => (
+                          <Pressable key={bk.id} style={styles.bookRow} onPress={() => setSel(bk.id)}
+                            accessible accessibilityRole="button" accessibilityLabel={bk.name}>
+                            <Text style={styles.bookName}>{bk.name}</Text>
+                            <Text style={styles.chip}>Ch. {bk.chapterCount}</Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                );
+              })
             )}
           </ScrollView>
         </View>
@@ -114,4 +128,6 @@ const styles = StyleSheet.create({
   chapterScroll: { paddingHorizontal: S.s3, paddingBottom: S.s3 },
   chapterPill: { justifyContent: 'center', alignItems: 'center', width: 48, height: 48, borderRadius: 24, backgroundColor: C.accentTint, marginRight: S.s2 },
   chapterPillText: { fontSize: 16, fontWeight: '600', color: C.accent },
+  testHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: S.s2, paddingHorizontal: S.s1 },
+  testTitle: { fontSize: 13, fontWeight: '700', letterSpacing: 1, color: C.ink },
 });
